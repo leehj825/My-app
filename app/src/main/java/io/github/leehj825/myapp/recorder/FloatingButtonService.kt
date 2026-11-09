@@ -30,11 +30,11 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 /**
- * Shows the REC button over other apps and a persistent notification with Start / Stop.
+ * Notification controls (Start / Stop), plus an optional REC button over other apps.
  *
- * Tapping the button starts a recording, or stops it if one is running. The button stays visible
- * while recording, so it appears in the video. The notification's Stop is not captured unless you
- * open the shade during the recording.
+ * The notification works on its own, so you can start and stop a recording without opening the app.
+ * Tapping the REC button starts a recording, or force-stops it if one is running. The button stays
+ * visible while recording, so it appears in the video.
  */
 class FloatingButtonService : Service() {
 
@@ -50,22 +50,37 @@ class FloatingButtonService : Service() {
             NotificationChannel(CHANNEL_ID, getString(R.string.controls_channel), NotificationManager.IMPORTANCE_LOW)
         )
         startForeground(NOTIFICATION_ID, buildControls(RecordingService.isRecording))
+        _running.value = true
+
+        // Keep the notification and the button label in step with the recording.
+        scope = MainScope().apply {
+            launch {
+                RecordingService.recording.collect { recording ->
+                    bubble?.text = getString(if (recording) R.string.bubble_stop else R.string.bubble_label)
+                    getSystemService(NotificationManager::class.java)
+                        .notify(NOTIFICATION_ID, buildControls(recording))
+                }
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_HIDE || !Settings.canDrawOverlays(this)) {
-            stopSelf()
-        } else if (bubble == null) {
-            addBubble()
+        when {
+            intent?.action == ACTION_HIDE -> stopSelf()
+            intent != null && intent.getBooleanExtra(EXTRA_BUBBLE, false) -> {
+                if (Settings.canDrawOverlays(this)) addBubble()
+            }
+            else -> removeBubble()
         }
         return START_NOT_STICKY
     }
 
     private fun addBubble() {
+        if (bubble != null) return
         val wm = getSystemService(WindowManager::class.java)
         val size = (BUBBLE_DP * resources.displayMetrics.density).toInt()
         val view = TextView(this).apply {
-            text = getString(R.string.bubble_label)
+            text = getString(if (RecordingService.isRecording) R.string.bubble_stop else R.string.bubble_label)
             setTextColor(Color.WHITE)
             textSize = 12f
             gravity = Gravity.CENTER
@@ -85,18 +100,13 @@ class FloatingButtonService : Service() {
         wm.addView(view, params)
         windowManager = wm
         bubble = view
-        _running.value = true
+        _bubbleOn.value = true
+    }
 
-        // Keep the button label and the notification in step with the recording.
-        scope = MainScope().apply {
-            launch {
-                RecordingService.recording.collect { recording ->
-                    view.text = getString(if (recording) R.string.bubble_stop else R.string.bubble_label)
-                    getSystemService(NotificationManager::class.java)
-                        .notify(NOTIFICATION_ID, buildControls(recording))
-                }
-            }
-        }
+    private fun removeBubble() {
+        bubble?.let { windowManager?.removeView(it) }
+        bubble = null
+        _bubbleOn.value = false
     }
 
     /** Drag the button anywhere on screen; a tap without a drag starts or stops a recording. */
@@ -144,15 +154,14 @@ class FloatingButtonService : Service() {
     }
 
     override fun onDestroy() {
+        removeBubble()
         scope?.cancel()
         scope = null
-        bubble?.let { windowManager?.removeView(it) }
-        bubble = null
         _running.value = false
         super.onDestroy()
     }
 
-    /** The notification shade controls: one Start or Stop button, plus Hide. */
+    /** The notification controls: one Start or Stop button, plus Hide. */
     private fun buildControls(recording: Boolean): Notification {
         val hideIntent = PendingIntent.getService(
             this, 0,
@@ -173,7 +182,8 @@ class FloatingButtonService : Service() {
             )
             builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, getString(R.string.stop), stopIntent)
         } else {
-            // Starting needs the system capture prompt, which only an activity can show.
+            // Starting needs the system capture prompt, which only an activity can show. The prompt is
+            // shown over the current screen; the app's own screen is not opened.
             val startIntent = PendingIntent.getActivity(
                 this, 2,
                 Intent(this, CaptureRequestActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
@@ -189,19 +199,30 @@ class FloatingButtonService : Service() {
         private const val CHANNEL_ID = "recorder_controls"
         private const val NOTIFICATION_ID = 2
         private const val ACTION_HIDE = "io.github.leehj825.myapp.HIDE_CONTROLS"
+        private const val EXTRA_BUBBLE = "bubble"
         private const val BUBBLE_DP = 56
 
         private val _running = MutableStateFlow(false)
+        private val _bubbleOn = MutableStateFlow(false)
 
-        /** True while the floating button and the notification controls are shown. */
+        /** True while the notification controls are shown. */
         val running: StateFlow<Boolean> = _running.asStateFlow()
 
-        val isRunning: Boolean get() = _running.value
+        /** True while the REC button is over other apps. */
+        val bubbleOn: StateFlow<Boolean> = _bubbleOn.asStateFlow()
 
-        fun start(context: Context) {
-            ContextCompat.startForegroundService(context, Intent(context, FloatingButtonService::class.java))
+        val isRunning: Boolean get() = _running.value
+        val isBubbleOn: Boolean get() = _bubbleOn.value
+
+        /** Shows the notification controls. With [bubble] also shows the REC button (needs overlay permission). */
+        fun start(context: Context, bubble: Boolean) {
+            ContextCompat.startForegroundService(
+                context,
+                Intent(context, FloatingButtonService::class.java).putExtra(EXTRA_BUBBLE, bubble)
+            )
         }
 
+        /** Hides the notification controls and the REC button. */
         fun stop(context: Context) {
             context.startService(Intent(context, FloatingButtonService::class.java).setAction(ACTION_HIDE))
         }

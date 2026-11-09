@@ -6,8 +6,10 @@
     <string name="tool_screen_recorder_desc">Record the whole screen to an MP4 video in Movies/ScreenRecordings.</string>
     <string name="start">Start recording</string>
     <string name="stop">Stop recording</string>
-    <string name="show_floating">Show floating button and controls</string>
-    <string name="hide_floating">Hide floating button and controls</string>
+    <string name="show_controls">Show notification controls</string>
+    <string name="hide_controls">Hide notification controls</string>
+    <string name="show_floating">Show floating button</string>
+    <string name="hide_floating">Hide floating button</string>
     <string name="status_idle">Not recording</string>
     <string name="status_recording">Recording the screen...\nThe video is saved to Movies/ScreenRecordings when you stop.</string>
     <string name="screen_capture_denied">Screen recording permission was not granted</string>
@@ -18,7 +20,7 @@
     <string name="controls_channel">Recorder controls</string>
     <string name="controls_title_idle">Screen recorder</string>
     <string name="controls_title_recording">Recording the screen</string>
-    <string name="controls_text">Start or stop from here, or tap the floating button.</string>
+    <string name="controls_text">Start or stop from here, without opening the app.</string>
     <string name="controls_hide">Hide</string>
     <string name="bubble_label">REC</string>
     <string name="bubble_stop">STOP</string>

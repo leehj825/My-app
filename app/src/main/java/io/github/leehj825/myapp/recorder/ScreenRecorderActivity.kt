@@ -2,6 +2,7 @@ package io.github.leehj825.myapp.recorder
 
 import io.github.leehj825.myapp.R
 import android.Manifest
+import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
@@ -24,6 +25,7 @@ class ScreenRecorderActivity : ComponentActivity() {
 
     private lateinit var status: TextView
     private lateinit var toggle: Button
+    private lateinit var controlsToggle: Button
     private lateinit var floatingToggle: Button
 
     // Shows the system "Start recording?" dialog. The result (code + intent) is the capture permission.
@@ -31,7 +33,7 @@ class ScreenRecorderActivity : ComponentActivity() {
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         val data = result.data
-        if (result.resultCode == android.app.Activity.RESULT_OK && data != null) {
+        if (result.resultCode == Activity.RESULT_OK && data != null) {
             RecordingService.start(this, result.resultCode, data)
         } else {
             Toast.makeText(this, R.string.screen_capture_denied, Toast.LENGTH_SHORT).show()
@@ -48,6 +50,7 @@ class ScreenRecorderActivity : ComponentActivity() {
         setContentView(R.layout.activity_screen_recorder)
         status = findViewById(R.id.status)
         toggle = findViewById(R.id.toggle)
+        controlsToggle = findViewById(R.id.controls_toggle)
         floatingToggle = findViewById(R.id.floating_toggle)
 
         toggle.setOnClickListener {
@@ -55,6 +58,13 @@ class ScreenRecorderActivity : ComponentActivity() {
                 RecordingService.stop(this)
             } else {
                 requestNotificationPermissionThenStart()
+            }
+        }
+        controlsToggle.setOnClickListener {
+            if (FloatingButtonService.isRunning) {
+                FloatingButtonService.stop(this)
+            } else {
+                FloatingButtonService.start(this, bubble = false)
             }
         }
         floatingToggle.setOnClickListener { onFloatingToggle() }
@@ -67,6 +77,13 @@ class ScreenRecorderActivity : ComponentActivity() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 FloatingButtonService.running.collect {
+                    controlsToggle.setText(if (it) R.string.hide_controls else R.string.show_controls)
+                }
+            }
+        }
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                FloatingButtonService.bubbleOn.collect {
                     floatingToggle.setText(if (it) R.string.hide_floating else R.string.show_floating)
                 }
             }
@@ -75,8 +92,9 @@ class ScreenRecorderActivity : ComponentActivity() {
 
     private fun onFloatingToggle() {
         when {
-            FloatingButtonService.isRunning -> FloatingButtonService.stop(this)
-            Settings.canDrawOverlays(this) -> FloatingButtonService.start(this)
+            // Hiding the button keeps the notification controls.
+            FloatingButtonService.isBubbleOn -> FloatingButtonService.start(this, bubble = false)
+            Settings.canDrawOverlays(this) -> FloatingButtonService.start(this, bubble = true)
             else -> {
                 Toast.makeText(this, R.string.overlay_permission_needed, Toast.LENGTH_LONG).show()
                 startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
