@@ -2,11 +2,13 @@ package io.github.leehj825.myapp.recorder
 
 import io.github.leehj825.myapp.R
 import android.Manifest
-import android.app.Activity
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
@@ -22,13 +24,14 @@ class ScreenRecorderActivity : ComponentActivity() {
 
     private lateinit var status: TextView
     private lateinit var toggle: Button
+    private lateinit var floatingToggle: Button
 
     // Shows the system "Start recording?" dialog. The result (code + intent) is the capture permission.
     private val projectionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         val data = result.data
-        if (result.resultCode == Activity.RESULT_OK && data != null) {
+        if (result.resultCode == android.app.Activity.RESULT_OK && data != null) {
             RecordingService.start(this, result.resultCode, data)
         } else {
             Toast.makeText(this, R.string.screen_capture_denied, Toast.LENGTH_SHORT).show()
@@ -45,6 +48,7 @@ class ScreenRecorderActivity : ComponentActivity() {
         setContentView(R.layout.activity_screen_recorder)
         status = findViewById(R.id.status)
         toggle = findViewById(R.id.toggle)
+        floatingToggle = findViewById(R.id.floating_toggle)
 
         toggle.setOnClickListener {
             if (RecordingService.isRecording) {
@@ -53,10 +57,29 @@ class ScreenRecorderActivity : ComponentActivity() {
                 requestNotificationPermissionThenStart()
             }
         }
+        floatingToggle.setOnClickListener { onFloatingToggle() }
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 RecordingService.recording.collect { render(it) }
+            }
+        }
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                FloatingButtonService.running.collect {
+                    floatingToggle.setText(if (it) R.string.hide_floating else R.string.show_floating)
+                }
+            }
+        }
+    }
+
+    private fun onFloatingToggle() {
+        when {
+            FloatingButtonService.isRunning -> FloatingButtonService.stop(this)
+            Settings.canDrawOverlays(this) -> FloatingButtonService.start(this)
+            else -> {
+                Toast.makeText(this, R.string.overlay_permission_needed, Toast.LENGTH_LONG).show()
+                startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
             }
         }
     }

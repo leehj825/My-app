@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.MyApp" parent="android:Theme.Material.NoActionBar" />
+    <!-- Used by the invisible activity that asks for screen capture permission. -->
+    <style name="Theme.MyApp.Transparent" parent="android:Theme.Translucent.NoTitleBar" />
 </resources>

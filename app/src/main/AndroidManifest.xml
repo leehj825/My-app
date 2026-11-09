@@ -1,11 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Foreground service that holds the screen capture; Android 14 needs the media projection type. -->
+    <!-- Foreground services: screen capture and the floating button. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
-    <!-- Shows the "recording" notification with its Stop button on Android 13+. Optional for the recording itself. -->
+    <!-- Notifications: recording status and Stop buttons (Android 13+). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- The floating button over other apps. The user allows it in Settings. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <application
         android:allowBackup="false"
@@ -28,9 +30,32 @@
             android:name=".recorder.ScreenRecorderActivity"
             android:exported="false" />
 
+        <!-- Invisible activity that shows the system screen capture prompt. -->
+        <activity
+            android:name=".recorder.CaptureRequestActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.MyApp.Transparent" />
+
         <service
             android:name=".recorder.RecordingService"
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
+
+        <service
+            android:name=".recorder.FloatingButtonService"
+            android:exported="false" />
+
+        <!-- Quick Settings tile: start and stop from the notification shade. -->
+        <service
+            android:name=".recorder.ScreenRecorderTileService"
+            android:exported="true"
+            android:icon="@android:drawable/presence_video_online"
+            android:label="@string/tile_label"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>
