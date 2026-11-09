@@ -41,7 +41,7 @@ import kotlin.math.min
  * Records the whole screen to an MP4 file in Movies/ScreenRecordings (shared storage, visible in Gallery).
  *
  * Runs as a foreground service: Android requires that for MediaProjection, and it keeps the recording alive
- * while the app is in the background. The capture permission (result code + intent) comes from MainActivity.
+ * while the app is in the background. The capture permission (result code + intent) comes from ScreenRecorderActivity.
  */
 class RecordingService : Service() {
 
@@ -249,8 +249,8 @@ class RecordingService : Service() {
         private const val TAG = "RecordingService"
         private const val CHANNEL_ID = "screen_recording"
         private const val NOTIFICATION_ID = 1
-        private const val ACTION_START = "io.github.leehj825.screenrecorder.START"
-        private const val ACTION_STOP = "io.github.leehj825.screenrecorder.STOP"
+        private const val ACTION_START = "io.github.leehj825.myapp.START"
+        private const val ACTION_STOP = "io.github.leehj825.myapp.STOP"
         private const val EXTRA_RESULT_CODE = "result_code"
         private const val EXTRA_DATA = "data"
         private const val FRAME_RATE = 30
