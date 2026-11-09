@@ -1,12 +1,11 @@
 name: Android debug APK
 
-# Builds My App (the Android app at the repository root) as a debug APK and attaches it to the run as an artifact.
+# Builds My App (the Android app at the repository root) as a debug APK on every push to any branch,
+# and on pull requests and on demand. The APK is attached to the run as an artifact.
 
 on:
   push:
-    paths: ['app/**', 'build.gradle', 'settings.gradle', 'gradle.properties', '.github/workflows/android-debug.yml']
   pull_request:
-    paths: ['app/**', 'build.gradle', 'settings.gradle', 'gradle.properties', '.github/workflows/android-debug.yml']
   workflow_dispatch:
 
 jobs:
