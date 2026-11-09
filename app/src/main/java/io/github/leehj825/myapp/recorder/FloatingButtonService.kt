@@ -30,10 +30,11 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 /**
- * A red REC button drawn over other apps. Tap it to start a recording from any app.
+ * Shows the REC button over other apps and a persistent notification with Start / Stop.
  *
- * It hides itself while recording, so the button is not in the video. Stop from the notification
- * shade (the Stop action) or the Quick Settings tile, which are not in the recording.
+ * Tapping the button starts a recording, or stops it if one is running. The button stays visible
+ * while recording, so it appears in the video. The notification's Stop is not captured unless you
+ * open the shade during the recording.
  */
 class FloatingButtonService : Service() {
 
@@ -46,13 +47,13 @@ class FloatingButtonService : Service() {
     override fun onCreate() {
         super.onCreate()
         getSystemService(NotificationManager::class.java).createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, getString(R.string.floating_channel), NotificationManager.IMPORTANCE_MIN)
+            NotificationChannel(CHANNEL_ID, getString(R.string.controls_channel), NotificationManager.IMPORTANCE_LOW)
         )
-        startForeground(NOTIFICATION_ID, buildNotification())
+        startForeground(NOTIFICATION_ID, buildControls(RecordingService.isRecording))
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP || !Settings.canDrawOverlays(this)) {
+        if (intent?.action == ACTION_HIDE || !Settings.canDrawOverlays(this)) {
             stopSelf()
         } else if (bubble == null) {
             addBubble()
@@ -86,17 +87,19 @@ class FloatingButtonService : Service() {
         bubble = view
         _running.value = true
 
-        // Hidden while recording, so it is not in the video.
+        // Keep the button label and the notification in step with the recording.
         scope = MainScope().apply {
             launch {
                 RecordingService.recording.collect { recording ->
-                    view.visibility = if (recording) View.GONE else View.VISIBLE
+                    view.text = getString(if (recording) R.string.bubble_stop else R.string.bubble_label)
+                    getSystemService(NotificationManager::class.java)
+                        .notify(NOTIFICATION_ID, buildControls(recording))
                 }
             }
         }
     }
 
-    /** Drag the button anywhere on screen; a tap without a drag starts a recording. */
+    /** Drag the button anywhere on screen; a tap without a drag starts or stops a recording. */
     private fun dragOrTap(params: WindowManager.LayoutParams, wm: WindowManager): View.OnTouchListener {
         val slop = ViewConfiguration.get(this).scaledTouchSlop
         var startX = 0
@@ -131,8 +134,11 @@ class FloatingButtonService : Service() {
         }
     }
 
+    /** Force stop when a recording is running; otherwise ask for permission and start one. */
     private fun onBubbleTapped() {
-        if (!RecordingService.isRecording) {
+        if (RecordingService.isRecording) {
+            RecordingService.stop(this)
+        } else {
             startActivity(Intent(this, CaptureRequestActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
     }
@@ -146,30 +152,48 @@ class FloatingButtonService : Service() {
         super.onDestroy()
     }
 
-    private fun buildNotification(): Notification {
-        val stopIntent = PendingIntent.getService(
+    /** The notification shade controls: one Start or Stop button, plus Hide. */
+    private fun buildControls(recording: Boolean): Notification {
+        val hideIntent = PendingIntent.getService(
             this, 0,
-            Intent(this, FloatingButtonService::class.java).setAction(ACTION_STOP),
+            Intent(this, FloatingButtonService::class.java).setAction(ACTION_HIDE),
             PendingIntent.FLAG_IMMUTABLE
         )
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.presence_video_online)
-            .setContentTitle(getString(R.string.floating_title))
-            .setContentText(getString(R.string.floating_text))
+            .setContentTitle(getString(if (recording) R.string.controls_title_recording else R.string.controls_title_idle))
+            .setContentText(getString(R.string.controls_text))
             .setOngoing(true)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, getString(R.string.floating_turn_off), stopIntent)
-            .build()
+            .setOnlyAlertOnce(true)
+        if (recording) {
+            val stopIntent = PendingIntent.getService(
+                this, 1,
+                Intent(this, RecordingService::class.java).setAction(RecordingService.ACTION_STOP),
+                PendingIntent.FLAG_IMMUTABLE
+            )
+            builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, getString(R.string.stop), stopIntent)
+        } else {
+            // Starting needs the system capture prompt, which only an activity can show.
+            val startIntent = PendingIntent.getActivity(
+                this, 2,
+                Intent(this, CaptureRequestActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                PendingIntent.FLAG_IMMUTABLE
+            )
+            builder.addAction(android.R.drawable.ic_media_play, getString(R.string.start), startIntent)
+        }
+        builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, getString(R.string.controls_hide), hideIntent)
+        return builder.build()
     }
 
     companion object {
-        private const val CHANNEL_ID = "floating_button"
+        private const val CHANNEL_ID = "recorder_controls"
         private const val NOTIFICATION_ID = 2
-        private const val ACTION_STOP = "io.github.leehj825.myapp.FLOATING_STOP"
+        private const val ACTION_HIDE = "io.github.leehj825.myapp.HIDE_CONTROLS"
         private const val BUBBLE_DP = 56
 
         private val _running = MutableStateFlow(false)
 
-        /** True while the floating button is on screen. */
+        /** True while the floating button and the notification controls are shown. */
         val running: StateFlow<Boolean> = _running.asStateFlow()
 
         val isRunning: Boolean get() = _running.value
@@ -179,7 +203,7 @@ class FloatingButtonService : Service() {
         }
 
         fun stop(context: Context) {
-            context.startService(Intent(context, FloatingButtonService::class.java).setAction(ACTION_STOP))
+            context.startService(Intent(context, FloatingButtonService::class.java).setAction(ACTION_HIDE))
         }
     }
 }

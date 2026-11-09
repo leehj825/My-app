@@ -250,7 +250,7 @@ class RecordingService : Service() {
         private const val CHANNEL_ID = "screen_recording"
         private const val NOTIFICATION_ID = 1
         private const val ACTION_START = "io.github.leehj825.myapp.START"
-        private const val ACTION_STOP = "io.github.leehj825.myapp.STOP"
+        const val ACTION_STOP = "io.github.leehj825.myapp.STOP"
         private const val EXTRA_RESULT_CODE = "result_code"
         private const val EXTRA_DATA = "data"
         private const val FRAME_RATE = 30
