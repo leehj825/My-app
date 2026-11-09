@@ -13,6 +13,7 @@
     <string name="status_idle">Not recording</string>
     <string name="status_recording">Recording the screen...\nThe video is saved to Movies/ScreenRecordings when you stop.</string>
     <string name="screen_capture_denied">Screen recording permission was not granted</string>
+    <string name="mic_denied">Microphone permission was not granted. The recording has no sound.</string>
     <string name="overlay_permission_needed">Allow \"Display over other apps\" for My App, then tap the button again.</string>
     <string name="notification_channel">Screen recording</string>
     <string name="notification_title">Screen recording</string>

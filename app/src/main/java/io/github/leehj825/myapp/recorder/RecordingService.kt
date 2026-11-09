@@ -1,7 +1,9 @@
 package io.github.leehj825.myapp.recorder
 
 import io.github.leehj825.myapp.R
+import android.Manifest
 import android.app.Activity
+import android.content.pm.PackageManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -72,18 +74,21 @@ class RecordingService : Service() {
 
     private fun handleStart(intent: Intent) {
         // Must be called right away after startForegroundService, before anything slow.
-        startAsForeground()
+        // The microphone is used only if the app was asked for it and the permission is granted.
+        val withMic = intent.getBooleanExtra(EXTRA_MIC, false) &&
+            checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        startAsForeground(withMic)
         if (_recording.value) return
         val data = intent.projectionData()
         val code = intent.getIntExtra(EXTRA_RESULT_CODE, Activity.RESULT_CANCELED)
         if (data != null && code == Activity.RESULT_OK) {
-            startRecording(code, data)
+            startRecording(code, data, withMic)
         } else {
             teardown(keep = false)
         }
     }
 
-    private fun startAsForeground() {
+    private fun startAsForeground(withMic: Boolean) {
         val stopIntent = PendingIntent.getService(
             this, 0,
             Intent(this, RecordingService::class.java).setAction(ACTION_STOP),
@@ -100,11 +105,14 @@ class RecordingService : Service() {
             .setOngoing(true)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, getString(R.string.stop), stopIntent)
             .build()
-        // Android 14+ requires the type; the system checks it against the MediaProjection permission.
-        startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
+        // Android 14+ requires the types; the system checks them against the MediaProjection and microphone permissions.
+        // The microphone type is declared only when recording sound, so the app can run in the background with it.
+        var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+        if (withMic) type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+        startForeground(NOTIFICATION_ID, notification, type)
     }
 
-    private fun startRecording(resultCode: Int, data: Intent) {
+    private fun startRecording(resultCode: Int, data: Intent, withMic: Boolean) {
         val mp = getSystemService(MediaProjectionManager::class.java).getMediaProjection(resultCode, data)
         if (mp == null) {
             teardown(keep = false)
@@ -129,9 +137,16 @@ class RecordingService : Service() {
             val mr = createRecorder()
             recorder = mr
             mr.setVideoSource(MediaRecorder.VideoSource.SURFACE)
+            if (withMic) mr.setAudioSource(MediaRecorder.AudioSource.MIC)
             mr.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
             mr.setOutputFile(descriptor.fileDescriptor)
             mr.setVideoEncoder(MediaRecorder.VideoEncoder.H264)
+            if (withMic) {
+                mr.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                mr.setAudioEncodingBitRate(AUDIO_BIT_RATE)
+                mr.setAudioSamplingRate(AUDIO_SAMPLE_RATE)
+                mr.setAudioChannels(1)
+            }
             mr.setVideoSize(spec.width, spec.height)
             mr.setVideoFrameRate(FRAME_RATE)
             mr.setVideoEncodingBitRate(bitRateFor(spec.width, spec.height))
@@ -253,8 +268,11 @@ class RecordingService : Service() {
         const val ACTION_STOP = "io.github.leehj825.myapp.STOP"
         private const val EXTRA_RESULT_CODE = "result_code"
         private const val EXTRA_DATA = "data"
+        private const val EXTRA_MIC = "mic"
         private const val FRAME_RATE = 30
         private const val MAX_LONG_SIDE = 1920
+        private const val AUDIO_BIT_RATE = 128_000
+        private const val AUDIO_SAMPLE_RATE = 44_100
 
         private val _recording = MutableStateFlow(false)
 
@@ -263,12 +281,13 @@ class RecordingService : Service() {
 
         val isRecording: Boolean get() = _recording.value
 
-        /** Starts recording with the permission from the system dialog. */
-        fun start(context: Context, resultCode: Int, data: Intent) {
+        /** Starts recording with the permission from the system dialog. [withMic] also records the microphone. */
+        fun start(context: Context, resultCode: Int, data: Intent, withMic: Boolean) {
             val intent = Intent(context, RecordingService::class.java)
                 .setAction(ACTION_START)
                 .putExtra(EXTRA_RESULT_CODE, resultCode)
                 .putExtra(EXTRA_DATA, data)
+                .putExtra(EXTRA_MIC, withMic)
             ContextCompat.startForegroundService(context, intent)
         }
 

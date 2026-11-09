@@ -15,7 +15,7 @@ A collection of useful Android tools in one app. The home screen lists them; tap
 - **Floating button:** turn it on with "Show floating button" in the app. It needs "Display over other apps" permission, which the app asks for once.
 - Each recording asks Android's "Start recording?" permission first. Android requires this every time.
 - Video only (H.264 in MP4, 30 fps). The screen is scaled so its long side is at most 1920 px.
-- No microphone or internal audio yet.
+- Microphone audio: the app asks once for the microphone permission. If you allow it, the video has your voice; if not, the video has no sound. App and system sounds are not recorded.
 - Needs Android 10 (API 29) or newer. Storage uses MediaStore, so no storage permission is needed.
 - Rotating the phone during a recording is not handled: the capture keeps the size it started with.
 

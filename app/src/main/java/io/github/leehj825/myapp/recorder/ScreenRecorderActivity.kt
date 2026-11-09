@@ -34,7 +34,7 @@ class ScreenRecorderActivity : ComponentActivity() {
     ) { result ->
         val data = result.data
         if (result.resultCode == Activity.RESULT_OK && data != null) {
-            RecordingService.start(this, result.resultCode, data)
+            RecordingService.start(this, result.resultCode, data, micGranted())
         } else {
             Toast.makeText(this, R.string.screen_capture_denied, Toast.LENGTH_SHORT).show()
         }
@@ -43,7 +43,15 @@ class ScreenRecorderActivity : ComponentActivity() {
     // Notifications are optional: without them recording still works, only the notification is hidden.
     private val notificationLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { askForCapturePermission() }
+    ) { requestMicThenCapture() }
+
+    // The microphone is optional: if refused, the recording is video only.
+    private val micLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (!granted) Toast.makeText(this, R.string.mic_denied, Toast.LENGTH_SHORT).show()
+        askForCapturePermission()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -109,9 +117,16 @@ class ScreenRecorderActivity : ComponentActivity() {
         if (needsNotifications) {
             notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         } else {
-            askForCapturePermission()
+            requestMicThenCapture()
         }
     }
+
+    private fun requestMicThenCapture() {
+        if (micGranted()) askForCapturePermission() else micLauncher.launch(Manifest.permission.RECORD_AUDIO)
+    }
+
+    private fun micGranted(): Boolean =
+        checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
     private fun askForCapturePermission() {
         val manager = getSystemService(MediaProjectionManager::class.java)
