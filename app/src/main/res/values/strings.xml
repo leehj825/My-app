@@ -26,4 +26,14 @@
     <string name="bubble_label">REC</string>
     <string name="bubble_stop">STOP</string>
     <string name="tile_label">Screen recording</string>
+    <string name="tool_notes">Notes</string>
+    <string name="tool_notes_desc">Write or dictate a note. Each note is saved as text with its date and time.</string>
+    <string name="notes_new">New note</string>
+    <string name="notes_empty">No notes yet. Tap New note.</string>
+    <string name="note_hint">Write your note, or tap Dictate</string>
+    <string name="note_dictate">Dictate</string>
+    <string name="note_delete">Delete</string>
+    <string name="note_done">Done</string>
+    <string name="note_dictate_prompt">Say your note</string>
+    <string name="note_no_speech">Speech recognition is not available on this phone</string>
 </resources>

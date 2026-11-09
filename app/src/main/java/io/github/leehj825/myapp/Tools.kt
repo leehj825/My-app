@@ -2,6 +2,7 @@ package io.github.leehj825.myapp
 
 import android.app.Activity
 import androidx.annotation.StringRes
+import io.github.leehj825.myapp.notes.NotesActivity
 import io.github.leehj825.myapp.recorder.ScreenRecorderActivity
 
 /** One tool in the app: its name and description on the home screen, and the activity that opens it. */
@@ -18,6 +19,11 @@ object Tools {
             name = R.string.tool_screen_recorder,
             description = R.string.tool_screen_recorder_desc,
             activity = ScreenRecorderActivity::class.java,
+        ),
+        Tool(
+            name = R.string.tool_notes,
+            description = R.string.tool_notes_desc,
+            activity = NotesActivity::class.java,
         ),
     )
 }

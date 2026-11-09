@@ -12,6 +12,13 @@
     <!-- The floating button over other apps. The user allows it in Settings. -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
+    <!-- Lets the notes screen find the phone's speech recognizer (Android 11+). -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="false"
         android:icon="@drawable/ic_launcher"
@@ -31,6 +38,14 @@
         <!-- Tools. Each one is an activity here and is listed in Tools.kt. -->
         <activity
             android:name=".recorder.ScreenRecorderActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".notes.NotesActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".notes.NoteEditActivity"
             android:exported="false" />
 
         <!-- Invisible activity that shows the system screen capture prompt. -->
