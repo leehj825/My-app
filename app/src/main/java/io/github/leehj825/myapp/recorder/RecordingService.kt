@@ -1,9 +1,7 @@
 package io.github.leehj825.myapp.recorder
 
-import io.github.leehj825.myapp.R
 import android.Manifest
 import android.app.Activity
-import android.content.pm.PackageManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -12,10 +10,8 @@ import android.app.Service
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
-import android.hardware.display.DisplayManager
-import android.hardware.display.VirtualDisplay
-import android.media.MediaRecorder
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
@@ -30,6 +26,7 @@ import android.util.Log
 import android.view.WindowManager
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import io.github.leehj825.myapp.R
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -40,16 +37,16 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * Records the whole screen to an MP4 file in Movies/ScreenRecordings (shared storage, visible in Gallery).
+ * Records the screen to an MP4 file in Movies/ScreenRecordings (shared storage, visible in Gallery),
+ * with app audio and, if allowed, the microphone (see [RecordingEngine]).
  *
  * Runs as a foreground service: Android requires that for MediaProjection, and it keeps the recording alive
- * while the app is in the background. The capture permission (result code + intent) comes from ScreenRecorderActivity.
+ * while the app is in the background. The capture permission (result code + intent) comes from the caller.
  */
 class RecordingService : Service() {
 
     private var projection: MediaProjection? = null
-    private var recorder: MediaRecorder? = null
-    private var virtualDisplay: VirtualDisplay? = null
+    private var recorder: RecordingEngine? = null
     private var outputDescriptor: ParcelFileDescriptor? = null
     private var outputUri: Uri? = null
 
@@ -73,10 +70,10 @@ class RecordingService : Service() {
     }
 
     private fun handleStart(intent: Intent) {
-        // Must be called right away after startForegroundService, before anything slow.
-        // The microphone is used only if the app was asked for it and the permission is granted.
+        // The microphone and app audio are used only if the audio permission is granted.
         val withMic = intent.getBooleanExtra(EXTRA_MIC, false) &&
             checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        // Must be called right away after startForegroundService, before anything slow.
         startAsForeground(withMic)
         if (_recording.value) return
         val data = intent.projectionData()
@@ -105,7 +102,7 @@ class RecordingService : Service() {
             .setOngoing(true)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, getString(R.string.stop), stopIntent)
             .build()
-        // Android 14+ requires the types; the system checks them against the MediaProjection and microphone permissions.
+        // Android 14+ requires the types; the system checks them against the MediaProjection and audio permissions.
         // The microphone type is declared only when recording sound, so the app can run in the background with it.
         var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
         if (withMic) type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
@@ -134,35 +131,18 @@ class RecordingService : Service() {
             outputDescriptor = descriptor
 
             val spec = captureSpec()
-            val mr = createRecorder()
-            recorder = mr
-            mr.setVideoSource(MediaRecorder.VideoSource.SURFACE)
-            if (withMic) mr.setAudioSource(MediaRecorder.AudioSource.MIC)
-            mr.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-            mr.setOutputFile(descriptor.fileDescriptor)
-            mr.setVideoEncoder(MediaRecorder.VideoEncoder.H264)
-            if (withMic) {
-                mr.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-                mr.setAudioEncodingBitRate(AUDIO_BIT_RATE)
-                mr.setAudioSamplingRate(AUDIO_SAMPLE_RATE)
-                mr.setAudioChannels(1)
-            }
-            mr.setVideoSize(spec.width, spec.height)
-            mr.setVideoFrameRate(FRAME_RATE)
-            mr.setVideoEncodingBitRate(bitRateFor(spec.width, spec.height))
-            mr.setOnErrorListener { _, what, extra ->
-                Log.e(TAG, "MediaRecorder error $what/$extra")
-                teardown(keep = true)
-            }
-            mr.prepare()
-
-            virtualDisplay = mp.createVirtualDisplay(
-                "ScreenRecorder",
-                spec.width, spec.height, spec.densityDpi,
-                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                mr.surface, null, null
+            val engine = RecordingEngine(
+                context = this,
+                projection = mp,
+                fd = descriptor.fileDescriptor,
+                width = spec.width,
+                height = spec.height,
+                densityDpi = spec.densityDpi,
+                withMic = withMic,
+                onFailure = { Handler(Looper.getMainLooper()).post { teardown(keep = true) } },
             )
-            mr.start()
+            recorder = engine
+            engine.start()
             _recording.value = true
         } catch (e: Exception) {
             Log.e(TAG, "Could not start the recording", e)
@@ -176,24 +156,12 @@ class RecordingService : Service() {
      * Safe to call more than once: each resource is taken out of its field before it is released.
      */
     private fun teardown(keep: Boolean) {
-        val mr = recorder; recorder = null
-        val vd = virtualDisplay; virtualDisplay = null
+        val engine = recorder; recorder = null
         val mp = projection; projection = null
         val fd = outputDescriptor; outputDescriptor = null
         val uri = outputUri; outputUri = null
 
-        var recorded = false
-        if (mr != null) {
-            try {
-                mr.stop()
-                recorded = true
-            } catch (e: RuntimeException) {
-                // stop() throws when nothing was recorded (for example, stopped right after starting).
-                Log.w(TAG, "Recording had no usable video", e)
-            }
-            mr.release()
-        }
-        vd?.release()
+        val recorded = engine?.stop() ?: false
         mp?.stop()
         fd?.close()
 
@@ -220,10 +188,6 @@ class RecordingService : Service() {
         put(MediaStore.Video.Media.IS_PENDING, 1)
     }
 
-    @Suppress("DEPRECATION")
-    private fun createRecorder(): MediaRecorder =
-        if (Build.VERSION.SDK_INT >= 31) MediaRecorder(this) else MediaRecorder()
-
     private class CaptureSpec(val width: Int, val height: Int, val densityDpi: Int)
 
     /** The screen size, scaled down so the long side is at most [MAX_LONG_SIDE], with even sides (H.264 needs them). */
@@ -248,10 +212,6 @@ class RecordingService : Service() {
 
     private fun even(value: Float): Int = max(2, (value.toInt() / 2) * 2)
 
-    /** About 4 bits per pixel per frame at 30 fps, clamped to a sane range. */
-    private fun bitRateFor(width: Int, height: Int): Int =
-        (width.toLong() * height * 4).coerceIn(2_000_000L, 20_000_000L).toInt()
-
     private fun Intent.projectionData(): Intent? =
         if (Build.VERSION.SDK_INT >= 33) {
             getParcelableExtra(EXTRA_DATA, Intent::class.java)
@@ -269,10 +229,7 @@ class RecordingService : Service() {
         private const val EXTRA_RESULT_CODE = "result_code"
         private const val EXTRA_DATA = "data"
         private const val EXTRA_MIC = "mic"
-        private const val FRAME_RATE = 30
         private const val MAX_LONG_SIDE = 1920
-        private const val AUDIO_BIT_RATE = 128_000
-        private const val AUDIO_SAMPLE_RATE = 44_100
 
         private val _recording = MutableStateFlow(false)
 
@@ -281,7 +238,7 @@ class RecordingService : Service() {
 
         val isRecording: Boolean get() = _recording.value
 
-        /** Starts recording with the permission from the system dialog. [withMic] also records the microphone. */
+        /** Starts recording with the permission from the system dialog. [withMic] also records sound (app audio and the microphone). */
         fun start(context: Context, resultCode: Int, data: Intent, withMic: Boolean) {
             val intent = Intent(context, RecordingService::class.java)
                 .setAction(ACTION_START)
