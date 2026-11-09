@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Screen Recorder</string>
+    <string name="start">Start recording</string>
+    <string name="stop">Stop recording</string>
+    <string name="status_idle">Not recording</string>
+    <string name="status_recording">Recording the screen...\nThe video is saved to Movies/ScreenRecordings when you stop.</string>
+    <string name="screen_capture_denied">Screen recording permission was not granted</string>
+    <string name="notification_channel">Screen recording</string>
+    <string name="notification_title">Screen recording</string>
+    <string name="notification_text">Recording the screen. Tap to open the app.</string>
+</resources>
