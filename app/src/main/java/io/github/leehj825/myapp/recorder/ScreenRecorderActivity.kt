@@ -1,5 +1,6 @@
-package io.github.leehj825.screenrecorder
+package io.github.leehj825.myapp.recorder
 
+import io.github.leehj825.myapp.R
 import android.Manifest
 import android.app.Activity
 import android.content.pm.PackageManager
@@ -17,7 +18,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.launch
 
-class MainActivity : ComponentActivity() {
+class ScreenRecorderActivity : ComponentActivity() {
 
     private lateinit var status: TextView
     private lateinit var toggle: Button
@@ -41,7 +42,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
+        setContentView(R.layout.activity_screen_recorder)
         status = findViewById(R.id.status)
         toggle = findViewById(R.id.toggle)
 

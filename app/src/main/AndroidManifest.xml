@@ -11,10 +11,11 @@
         android:allowBackup="false"
         android:icon="@drawable/ic_launcher"
         android:label="@string/app_name"
-        android:theme="@style/Theme.ScreenRecorder">
+        android:theme="@style/Theme.MyApp">
 
+        <!-- The home screen: lists the tools in this app. -->
         <activity
-            android:name=".MainActivity"
+            android:name=".HomeActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -22,8 +23,13 @@
             </intent-filter>
         </activity>
 
+        <!-- Tools. Each one is an activity here and is listed in Tools.kt. -->
+        <activity
+            android:name=".recorder.ScreenRecorderActivity"
+            android:exported="false" />
+
         <service
-            android:name=".RecordingService"
+            android:name=".recorder.RecordingService"
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
     </application>

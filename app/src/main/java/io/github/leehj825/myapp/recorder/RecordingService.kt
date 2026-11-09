@@ -1,5 +1,6 @@
-package io.github.leehj825.screenrecorder
+package io.github.leehj825.myapp.recorder
 
+import io.github.leehj825.myapp.R
 import android.app.Activity
 import android.app.Notification
 import android.app.NotificationChannel
@@ -89,7 +90,7 @@ class RecordingService : Service() {
             PendingIntent.FLAG_IMMUTABLE
         )
         val openIntent = PendingIntent.getActivity(
-            this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE
+            this, 0, Intent(this, ScreenRecorderActivity::class.java), PendingIntent.FLAG_IMMUTABLE
         )
         val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.presence_video_online)

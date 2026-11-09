@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace 'io.github.leehj825.screenrecorder'
+    namespace 'io.github.leehj825.myapp'
     compileSdk 34
 
     defaultConfig {
-        applicationId 'io.github.leehj825.screenrecorder'
+        applicationId 'io.github.leehj825.myapp'
         // Scoped storage (MediaStore RELATIVE_PATH) and MediaRecorder(Context) need Android 10 / 12 APIs handled in code.
         minSdk 29
         targetSdk 34

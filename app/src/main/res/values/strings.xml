@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Screen Recorder</string>
+    <string name="app_name">My App</string>
+    <string name="home_title">My tools</string>
+    <string name="tool_screen_recorder">Screen Recorder</string>
+    <string name="tool_screen_recorder_desc">Record the whole screen to an MP4 video in Movies/ScreenRecordings.</string>
     <string name="start">Start recording</string>
     <string name="stop">Stop recording</string>
     <string name="status_idle">Not recording</string>

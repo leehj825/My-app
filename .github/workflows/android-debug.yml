@@ -1,12 +1,12 @@
-name: Screen Recorder debug APK
+name: Android debug APK
 
-# Builds the Screen Recorder app (screen-recorder/) as a debug APK and attaches it to the run as an artifact.
+# Builds My App (the Android app at the repository root) as a debug APK and attaches it to the run as an artifact.
 
 on:
   push:
-    paths: ['screen-recorder/**', '.github/workflows/screen-recorder-debug.yml']
+    paths: ['app/**', 'build.gradle', 'settings.gradle', 'gradle.properties', '.github/workflows/android-debug.yml']
   pull_request:
-    paths: ['screen-recorder/**', '.github/workflows/screen-recorder-debug.yml']
+    paths: ['app/**', 'build.gradle', 'settings.gradle', 'gradle.properties', '.github/workflows/android-debug.yml']
   workflow_dispatch:
 
 jobs:
@@ -27,12 +27,11 @@ jobs:
           gradle-version: '8.9'
 
       - name: Build the debug APK
-        working-directory: screen-recorder
         run: gradle --no-daemon assembleDebug
 
       - name: Upload the APK
         uses: actions/upload-artifact@v4
         with:
-          name: screen-recorder-debug-apk
-          path: screen-recorder/app/build/outputs/apk/debug/*.apk
+          name: my-app-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
