@@ -76,4 +76,7 @@
     <string name="note_summary_insert">Insert</string>
     <string name="note_close">Close</string>
     <string name="note_ai_failed">The summary is not available right now</string>
+    <string name="ai_status_checking">Checking on-device AI…</string>
+    <string name="ai_status_ready">On-device AI is ready on this phone</string>
+    <string name="ai_status_unavailable">On-device AI is not available on this phone</string>
 </resources>

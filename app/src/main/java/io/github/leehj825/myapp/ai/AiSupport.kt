@@ -22,10 +22,13 @@ object AiSupport {
     fun cachedAvailable(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_SUMMARIZE, false)
 
-    /** Asks the phone whether summarizing works here (the model is installed and ready), and remembers it. */
-    fun refresh(context: Context) {
+    /**
+     * Asks the phone whether summarizing works here (the model is installed and ready), and remembers the answer.
+     * [onDone] gets the answer when it is known.
+     */
+    fun refresh(context: Context, onDone: (Boolean) -> Unit = {}) {
         val app = context.applicationContext
-        val available = try {
+        try {
             val summarizer = Summarization.getClient(options(app, null))
             val future = summarizer.checkFeatureStatus()
             future.addListener({
@@ -34,14 +37,18 @@ object AiSupport {
                 } catch (e: Exception) {
                     false
                 }
-                app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_SUMMARIZE, ready).apply()
+                save(app, ready)
                 summarizer.close()
+                onDone(ready)
             }, ContextCompat.getMainExecutor(app))
-            return
         } catch (e: Exception) {
-            false
+            save(app, false)
+            onDone(false)
         }
-        app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_SUMMARIZE, available).apply()
+    }
+
+    private fun save(context: Context, ready: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_SUMMARIZE, ready).apply()
     }
 
     /** Summarizes [text] on the phone. [onResult] gets the summary, or null if it failed. */

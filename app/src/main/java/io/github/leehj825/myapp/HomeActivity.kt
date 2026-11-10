@@ -7,12 +7,15 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import io.github.leehj825.myapp.ai.AiSupport
 
-/** The home screen: a list of the tools in this app. */
+/** The home screen: a list of the tools in this app, and whether on-device AI is ready on this phone. */
 class HomeActivity : Activity() {
+
+    private lateinit var aiStatus: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_home)
+        aiStatus = findViewById(R.id.ai_status)
 
         val list: LinearLayout = findViewById(R.id.tools)
         for (tool in Tools.all) {
@@ -26,7 +29,12 @@ class HomeActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        // Re-check the on-device AI each time the home screen is shown.
-        AiSupport.refresh(this)
+        // Check the on-device AI each time the home screen is shown, and show the result.
+        aiStatus.setText(R.string.ai_status_checking)
+        AiSupport.refresh(this) { ready -> showAiStatus(ready) }
+    }
+
+    private fun showAiStatus(ready: Boolean) {
+        aiStatus.setText(if (ready) R.string.ai_status_ready else R.string.ai_status_unavailable)
     }
 }
