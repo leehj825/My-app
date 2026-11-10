@@ -36,4 +36,23 @@
     <string name="note_done">Done</string>
     <string name="note_dictate_prompt">Say your note</string>
     <string name="note_no_speech">Speech recognition is not available on this phone</string>
+    <string name="note_read">Read aloud</string>
+    <string name="note_tts_unavailable">Text-to-speech is not available on this phone</string>
+    <string name="note_save_failed">The note could not be saved</string>
+    <string name="tool_journal">Daily journal</string>
+    <string name="tool_journal_desc">One entry a day, with a reminder at a time you choose.</string>
+    <string name="journal_today">Today\'s entry</string>
+    <string name="journal_set_time">Set reminder time</string>
+    <string name="journal_reminder_off">Turn off reminder</string>
+    <string name="journal_reminder_on">Reminder every day at %1$s</string>
+    <string name="journal_reminder_none">No reminder set</string>
+    <string name="journal_empty">No entries yet. Tap Today\'s entry.</string>
+    <string name="journal_channel">Journal reminder</string>
+    <string name="journal_notification_title">Daily journal</string>
+    <string name="journal_notification_text">How was your day? Tap to write today\'s entry.</string>
+    <string name="tool_secure_notes">Secure notes</string>
+    <string name="tool_secure_notes_desc">Notes locked with your fingerprint or screen lock, stored encrypted.</string>
+    <string name="secure_title">Unlock secure notes</string>
+    <string name="secure_needs_lock">Set a screen lock in Settings first to use secure notes</string>
+    <string name="secure_failed">Secure notes could not be opened</string>
 </resources>

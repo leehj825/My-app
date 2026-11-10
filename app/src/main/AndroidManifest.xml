@@ -4,13 +4,17 @@
     <!-- Foreground services: screen capture and the floating button. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
-    <!-- Notifications: recording status and Stop buttons (Android 13+). -->
+    <!-- Notifications: recording status, Stop buttons, the journal reminder (Android 13+). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- Microphone audio in the recording (optional: the user can refuse, then the video has no sound). -->
+    <!-- Microphone and app audio in the recording (optional: if refused, the video has no sound). -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <!-- The floating button over other apps. The user allows it in Settings. -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- Fingerprint or screen lock to open secure notes. -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <!-- Sets the journal reminder again after the phone restarts. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!-- Lets the notes screen find the phone's speech recognizer (Android 11+). -->
     <queries>
@@ -48,6 +52,14 @@
             android:name=".notes.NoteEditActivity"
             android:exported="false" />
 
+        <activity
+            android:name=".journal.JournalActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".secure.SecureNotesActivity"
+            android:exported="false" />
+
         <!-- Invisible activity that shows the system screen capture prompt. -->
         <activity
             android:name=".recorder.CaptureRequestActivity"
@@ -63,6 +75,19 @@
         <service
             android:name=".recorder.FloatingButtonService"
             android:exported="false" />
+
+        <!-- The journal reminder alarm, and the restart that sets it again. -->
+        <receiver
+            android:name=".journal.JournalReminderReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".journal.JournalBootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
 
         <!-- Quick Settings tile: start and stop from the notification shade. -->
         <service

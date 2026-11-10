@@ -2,8 +2,10 @@ package io.github.leehj825.myapp
 
 import android.app.Activity
 import androidx.annotation.StringRes
+import io.github.leehj825.myapp.journal.JournalActivity
 import io.github.leehj825.myapp.notes.NotesActivity
 import io.github.leehj825.myapp.recorder.ScreenRecorderActivity
+import io.github.leehj825.myapp.secure.SecureNotesActivity
 
 /** One tool in the app: its name and description on the home screen, and the activity that opens it. */
 data class Tool(
@@ -24,6 +26,16 @@ object Tools {
             name = R.string.tool_notes,
             description = R.string.tool_notes_desc,
             activity = NotesActivity::class.java,
+        ),
+        Tool(
+            name = R.string.tool_journal,
+            description = R.string.tool_journal_desc,
+            activity = JournalActivity::class.java,
+        ),
+        Tool(
+            name = R.string.tool_secure_notes,
+            description = R.string.tool_secure_notes_desc,
+            activity = SecureNotesActivity::class.java,
         ),
     )
 }
