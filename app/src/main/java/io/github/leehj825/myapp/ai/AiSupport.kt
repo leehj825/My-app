@@ -8,47 +8,60 @@ import com.google.mlkit.genai.summarization.SummarizationRequest
 import com.google.mlkit.genai.summarization.SummarizerOptions
 import io.github.leehj825.myapp.voice.VoicePrefs
 
+/** Whether on-device AI (Gemini Nano) can be used on this phone. */
+enum class AiStatus {
+    /** Ready to use. */
+    READY,
+
+    /** Supported, but the model still has to be downloaded. */
+    DOWNLOADABLE,
+
+    /** The model is being downloaded now. */
+    DOWNLOADING,
+
+    /** Not supported on this phone (or the check failed). */
+    UNAVAILABLE,
+}
+
 /**
  * On-device AI (Gemini Nano, through ML Kit GenAI). Works only on phones that support it.
  *
- * [refresh] asks the phone once and remembers the answer; screens show an AI button only when the answer is yes.
+ * [refresh] asks the phone and remembers the answer. Screens show AI features only when the answer is READY.
  * Nothing is sent off the phone.
  */
 object AiSupport {
     private const val PREFS = "ai"
-    private const val KEY_SUMMARIZE = "summarize_available"
+    private const val KEY_SUMMARIZE = "summarize_status"
 
-    /** The last answer from [refresh]. False until the phone has been checked. */
-    fun cachedAvailable(context: Context): Boolean =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_SUMMARIZE, false)
+    /** The last answer from [refresh]. UNAVAILABLE until the phone has been checked. */
+    fun cachedStatus(context: Context): AiStatus {
+        val name = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_SUMMARIZE, null)
+        return AiStatus.values().firstOrNull { it.name == name } ?: AiStatus.UNAVAILABLE
+    }
 
-    /**
-     * Asks the phone whether summarizing works here (the model is installed and ready), and remembers the answer.
-     * [onDone] gets the answer when it is known.
-     */
-    fun refresh(context: Context, onDone: (Boolean) -> Unit = {}) {
+    /** True if the AI is ready to use now. */
+    fun cachedAvailable(context: Context): Boolean = cachedStatus(context) == AiStatus.READY
+
+    /** Asks the phone for the AI status, remembers it, and gives it to [onDone]. */
+    fun refresh(context: Context, onDone: (AiStatus) -> Unit = {}) {
         val app = context.applicationContext
         try {
             val summarizer = Summarization.getClient(options(app, null))
             val future = summarizer.checkFeatureStatus()
             future.addListener({
-                val ready = try {
-                    future.get() == FeatureStatus.AVAILABLE
+                val status = try {
+                    toStatus(future.get())
                 } catch (e: Exception) {
-                    false
+                    AiStatus.UNAVAILABLE
                 }
-                save(app, ready)
+                save(app, status)
                 summarizer.close()
-                onDone(ready)
+                onDone(status)
             }, ContextCompat.getMainExecutor(app))
         } catch (e: Exception) {
-            save(app, false)
-            onDone(false)
+            save(app, AiStatus.UNAVAILABLE)
+            onDone(AiStatus.UNAVAILABLE)
         }
-    }
-
-    private fun save(context: Context, ready: Boolean) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_SUMMARIZE, ready).apply()
     }
 
     /** Summarizes [text] on the phone. [onResult] gets the summary, or null if it failed. */
@@ -69,6 +82,17 @@ object AiSupport {
         } catch (e: Exception) {
             onResult(null)
         }
+    }
+
+    private fun toStatus(value: Int): AiStatus = when (value) {
+        FeatureStatus.AVAILABLE -> AiStatus.READY
+        FeatureStatus.DOWNLOADABLE -> AiStatus.DOWNLOADABLE
+        FeatureStatus.DOWNLOADING -> AiStatus.DOWNLOADING
+        else -> AiStatus.UNAVAILABLE
+    }
+
+    private fun save(context: Context, status: AiStatus) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_SUMMARIZE, status.name).apply()
     }
 
     private fun options(context: Context, text: String?): SummarizerOptions =

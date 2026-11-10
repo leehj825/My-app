@@ -79,4 +79,6 @@
     <string name="ai_status_checking">Checking on-device AI…</string>
     <string name="ai_status_ready">On-device AI is ready on this phone</string>
     <string name="ai_status_unavailable">On-device AI is not available on this phone</string>
+    <string name="ai_status_downloadable">On-device AI is supported, but its model still needs to be downloaded</string>
+    <string name="ai_status_downloading">On-device AI model is downloading now</string>
 </resources>
