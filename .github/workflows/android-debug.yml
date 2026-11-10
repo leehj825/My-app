@@ -23,7 +23,7 @@ jobs:
       # The runner image already has the Android SDK; this installs Gradle itself, so no wrapper is committed
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.9'
+          gradle-version: '8.13'
 
       - name: Build the debug APK
         run: gradle --no-daemon assembleDebug
