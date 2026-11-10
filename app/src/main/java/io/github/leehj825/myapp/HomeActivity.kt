@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.widget.LinearLayout
 import android.widget.TextView
+import io.github.leehj825.myapp.ai.AiSupport
 
 /** The home screen: a list of the tools in this app. */
 class HomeActivity : Activity() {
@@ -21,5 +22,11 @@ class HomeActivity : Activity() {
             item.setOnClickListener { startActivity(Intent(this, tool.activity)) }
             list.addView(item)
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Re-check the on-device AI each time the home screen is shown.
+        AiSupport.refresh(this)
     }
 }

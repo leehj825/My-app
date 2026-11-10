@@ -40,4 +40,5 @@ dependencies {
     implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.8.6'
     implementation 'androidx.fragment:fragment:1.8.2'
     implementation 'androidx.biometric:biometric:1.1.0'
+    implementation 'com.google.mlkit:genai-summarization:1.0.0-beta1'
 }

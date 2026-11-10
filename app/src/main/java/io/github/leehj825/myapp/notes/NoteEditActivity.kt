@@ -18,6 +18,7 @@ import androidx.activity.addCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.FragmentActivity
 import io.github.leehj825.myapp.R
+import io.github.leehj825.myapp.ai.AiSupport
 import io.github.leehj825.myapp.secure.SecureVault
 import io.github.leehj825.myapp.voice.VoicePrefs
 import java.util.Locale
@@ -79,6 +80,11 @@ class NoteEditActivity : FragmentActivity() {
 
         findViewById<Button>(R.id.note_dictate).setOnClickListener { dictate() }
         findViewById<Button>(R.id.note_read).setOnClickListener { readAloud() }
+        // Summarize uses the phone's on-device Gemini Nano. The button is shown only if this phone supports it.
+        findViewById<Button>(R.id.note_summarize).apply {
+            visibility = if (AiSupport.cachedAvailable(this@NoteEditActivity)) View.VISIBLE else View.GONE
+            setOnClickListener { summarizeNote() }
+        }
         findViewById<Button>(R.id.note_done).setOnClickListener { persist(allowPrompt = true) { finish() } }
         onBackPressedDispatcher.addCallback(this) { persist(allowPrompt = true) { finish() } }
         delete.setOnClickListener { deleteNote() }
@@ -221,6 +227,24 @@ class NoteEditActivity : FragmentActivity() {
             }
         }
         engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "note")
+    }
+
+    /** Shows an on-device summary of the text. The user chooses whether to insert it. */
+    private fun summarizeNote() {
+        val text = body.text.toString().trim()
+        if (text.isEmpty()) return
+        AiSupport.summarize(this, text) { summary ->
+            if (summary.isNullOrBlank()) {
+                Toast.makeText(this, R.string.note_ai_failed, Toast.LENGTH_LONG).show()
+            } else {
+                AlertDialog.Builder(this)
+                    .setTitle(R.string.note_summary_title)
+                    .setMessage(summary)
+                    .setPositiveButton(R.string.note_summary_insert) { _, _ -> insertAtCursor(summary) }
+                    .setNegativeButton(R.string.note_close, null)
+                    .show()
+            }
+        }
     }
 
     /** Puts the spoken words where the cursor is, with a space before them if needed. */
