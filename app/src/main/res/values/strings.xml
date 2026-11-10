@@ -55,4 +55,20 @@
     <string name="secure_title">Unlock secure notes</string>
     <string name="secure_needs_lock">Set a screen lock in Settings first to use secure notes</string>
     <string name="secure_failed">Secure notes could not be opened</string>
+    <string name="note_pick_heard">Which one did you mean?</string>
+    <string name="note_tts_language_missing">This language\'s voice is not installed. Install it in Settings, Text-to-speech output.</string>
+    <string name="secure_locked">Locked. Fingerprint needed to read.</string>
+    <string name="secure_cancel">Cancel</string>
+    <string name="secure_not_opened">The secure note could not be opened</string>
+    <string name="secure_needs_fingerprint">Add a fingerprint in Settings first to use secure notes</string>
+    <string name="tool_voice">Voice settings</string>
+    <string name="tool_voice_desc">Choose the language and voice for reading aloud and for dictation.</string>
+    <string name="lang_system">System default</string>
+    <string name="lang_korean">한국어 (Korean)</string>
+    <string name="lang_english">English</string>
+    <string name="lang_japanese">日本語 (Japanese)</string>
+    <string name="lang_chinese">中文 (Chinese)</string>
+    <string name="voice_for">Voices for %1$s. Tap one to hear a sample.</string>
+    <string name="voice_none">No voices for %1$s are installed. Install them in Settings, Text-to-speech output.</string>
+    <string name="voice_no_engine">Text-to-speech is not available on this phone</string>
 </resources>

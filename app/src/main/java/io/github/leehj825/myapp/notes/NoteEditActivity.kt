@@ -1,10 +1,10 @@
 package io.github.leehj825.myapp.notes
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
-import android.security.keystore.UserNotAuthenticatedException
 import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
 import android.util.Log
@@ -19,13 +19,14 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.FragmentActivity
 import io.github.leehj825.myapp.R
 import io.github.leehj825.myapp.secure.SecureVault
+import io.github.leehj825.myapp.voice.VoicePrefs
 import java.util.Locale
 
 /**
  * Writes, dictates or reads aloud one note. Used for plain notes, journal entries and secure notes.
  *
- * Saving: Done, Back and leaving the screen. A secure note asks for the phone unlock when it needs it.
- * Dictation uses the phone's speech recognition; read-aloud uses the phone's text-to-speech. No audio is kept.
+ * Plain notes are saved when you leave the screen. Secure notes need a fingerprint: the text is shown only
+ * after one, and they are saved when you tap Done or Back (leaving the app by itself does not save them).
  */
 class NoteEditActivity : FragmentActivity() {
 
@@ -36,6 +37,8 @@ class NoteEditActivity : FragmentActivity() {
     private var createdAt = 0L
     private var day: String? = null
     private var secure = false
+    private var loaded = false
+    private var secureNotes: MutableList<Note> = mutableListOf()
     private var deleted = false
     private var tts: TextToSpeech? = null
     private var ttsReady = false
@@ -43,8 +46,16 @@ class NoteEditActivity : FragmentActivity() {
     private val speechLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        val heard = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
-        if (result.resultCode == Activity.RESULT_OK && !heard.isNullOrBlank()) insertAtCursor(heard)
+        val heard: List<String> = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS) ?: emptyList()
+        when {
+            result.resultCode != Activity.RESULT_OK || heard.isEmpty() -> Unit
+            heard.size == 1 -> insertAtCursor(heard[0])
+            // Several guesses: let the user pick the one that is right.
+            else -> AlertDialog.Builder(this)
+                .setTitle(R.string.note_pick_heard)
+                .setItems(heard.toTypedArray()) { _, which -> insertAtCursor(heard[which]) }
+                .show()
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -63,7 +74,6 @@ class NoteEditActivity : FragmentActivity() {
         noteId = if (isNew) System.currentTimeMillis() else existingId
         createdAt = if (isNew) noteId else intent.getLongExtra(EXTRA_CREATED, noteId)
         day = intent.getStringExtra(EXTRA_DAY)
-        body.setText(intent.getStringExtra(EXTRA_TEXT).orEmpty())
         time.text = formatNoteTime(createdAt)
         delete.visibility = if (isNew) View.GONE else View.VISIBLE
 
@@ -73,15 +83,33 @@ class NoteEditActivity : FragmentActivity() {
         onBackPressedDispatcher.addCallback(this) { persist(allowPrompt = true) { finish() } }
         delete.setOnClickListener { deleteNote() }
 
-        tts = TextToSpeech(this) { status ->
-            ttsReady = status == TextToSpeech.SUCCESS
-            if (ttsReady) tts?.language = Locale.getDefault()
+        tts = TextToSpeech(this) { status -> ttsReady = status == TextToSpeech.SUCCESS }
+
+        if (secure) {
+            // The text is hidden until the fingerprint is accepted.
+            body.isEnabled = false
+            body.hint = getString(R.string.secure_locked)
+            SecureVault.read(
+                this,
+                onNotes = { notes ->
+                    secureNotes = notes
+                    loaded = true
+                    body.setText(notes.find { it.id == noteId }?.text.orEmpty())
+                    body.isEnabled = true
+                    body.hint = getString(R.string.note_hint)
+                },
+                onFail = {
+                    Toast.makeText(this, R.string.secure_not_opened, Toast.LENGTH_LONG).show()
+                    finish()
+                },
+            )
+        } else {
+            body.setText(intent.getStringExtra(EXTRA_TEXT).orEmpty())
         }
     }
 
     override fun onPause() {
         super.onPause()
-        // Leaving the screen saves without asking; a secure note that needs unlocking is then not saved.
         persist(allowPrompt = false)
     }
 
@@ -91,32 +119,39 @@ class NoteEditActivity : FragmentActivity() {
         super.onDestroy()
     }
 
-    /** Reads the notes store, applies [change] and writes it back. Secure notes may throw UserNotAuthenticatedException. */
-    private fun update(change: (MutableList<Note>) -> Unit) {
-        val notes = if (secure) SecureVault.load(this) else NoteStore.load(this)
-        change(notes)
-        if (secure) SecureVault.save(this, notes) else NoteStore.save(this, notes)
-    }
-
-    /** Saves the text. An empty note is removed. [then] runs once it is saved (or given up on). */
+    /** Saves the text. An empty note is removed. [then] runs once it is saved (or when there is nothing to save). */
     private fun persist(allowPrompt: Boolean, then: () -> Unit = {}) {
         if (deleted) {
             then()
             return
         }
-        try {
-            val text = body.text.toString().trim()
-            update { notes ->
-                notes.removeAll { it.id == noteId }
-                if (text.isNotEmpty()) notes.add(Note(noteId, text, createdAt, day))
-            }
-            then()
-        } catch (e: UserNotAuthenticatedException) {
-            if (allowPrompt) {
-                SecureVault.authenticate(this, onSuccess = { persist(allowPrompt = false, then = then) }, onCancel = {})
-            } else {
+        val text = body.text.toString().trim()
+        if (secure) {
+            if (!allowPrompt || !loaded) {
                 then()
+                return
             }
+            val updated = secureNotes.toMutableList().apply {
+                removeAll { it.id == noteId }
+                if (text.isNotEmpty()) add(Note(noteId, text, createdAt, day))
+            }
+            SecureVault.write(
+                this,
+                updated,
+                onSaved = {
+                    secureNotes = updated
+                    then()
+                },
+                onFail = { Toast.makeText(this, R.string.note_save_failed, Toast.LENGTH_LONG).show() },
+            )
+            return
+        }
+        try {
+            val notes = NoteStore.load(this)
+            notes.removeAll { it.id == noteId }
+            if (text.isNotEmpty()) notes.add(Note(noteId, text, createdAt, day))
+            NoteStore.save(this, notes)
+            then()
         } catch (e: Exception) {
             Log.e(TAG, "Could not save the note", e)
             Toast.makeText(this, R.string.note_save_failed, Toast.LENGTH_LONG).show()
@@ -124,18 +159,38 @@ class NoteEditActivity : FragmentActivity() {
     }
 
     private fun deleteNote() {
+        if (secure) {
+            if (!loaded) return
+            val updated = secureNotes.filter { it.id != noteId }.toMutableList()
+            SecureVault.write(
+                this,
+                updated,
+                onSaved = {
+                    deleted = true
+                    finish()
+                },
+                onFail = { Toast.makeText(this, R.string.note_save_failed, Toast.LENGTH_LONG).show() },
+            )
+            return
+        }
         try {
-            update { notes -> notes.removeAll { it.id == noteId } }
+            val notes = NoteStore.load(this)
+            notes.removeAll { it.id == noteId }
+            NoteStore.save(this, notes)
             deleted = true
             finish()
-        } catch (e: UserNotAuthenticatedException) {
-            SecureVault.authenticate(this, onSuccess = { deleteNote() }, onCancel = {})
+        } catch (e: Exception) {
+            Log.e(TAG, "Could not delete the note", e)
+            Toast.makeText(this, R.string.note_save_failed, Toast.LENGTH_LONG).show()
         }
     }
 
     private fun dictate() {
+        val language = VoicePrefs.dictationLanguage(this)
         val speech = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, language)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
             putExtra(RecognizerIntent.EXTRA_PROMPT, getString(R.string.note_dictate_prompt))
         }
         if (speech.resolveActivity(packageManager) == null) {
@@ -145,14 +200,27 @@ class NoteEditActivity : FragmentActivity() {
         }
     }
 
+    /** Reads the note in the chosen voice. Korean text is always read in Korean. */
     private fun readAloud() {
         val text = body.text.toString().trim()
+        val engine = tts
         if (text.isEmpty()) return
-        if (!ttsReady) {
+        if (!ttsReady || engine == null) {
             Toast.makeText(this, R.string.note_tts_unavailable, Toast.LENGTH_LONG).show()
-        } else {
-            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "note")
+            return
         }
+        val locale = if (VoicePrefs.containsHangul(text)) Locale.KOREAN else VoicePrefs.locale(this)
+        if (engine.setLanguage(locale) < TextToSpeech.LANG_AVAILABLE) {
+            Toast.makeText(this, R.string.note_tts_language_missing, Toast.LENGTH_LONG).show()
+            return
+        }
+        // Set after the language, because changing the language can reset the voice.
+        VoicePrefs.voiceName(this)?.let { name ->
+            engine.voices?.firstOrNull { it.name == name && it.locale.language == locale.language }?.let {
+                engine.voice = it
+            }
+        }
+        engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "note")
     }
 
     /** Puts the spoken words where the cursor is, with a space before them if needed. */
