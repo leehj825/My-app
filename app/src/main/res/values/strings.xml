@@ -111,4 +111,6 @@
     <string name="chat_key_cancel">Cancel</string>
     <string name="chat_gemini_label">Use Gemini in the cloud (your message goes to Google)</string>
     <string name="chat_gemini_failed">Gemini could not answer. Check the internet and the API key.</string>
+    <string name="chat_gemini_selected">Gemini selected. Its model name appears after the first reply.</string>
+    <string name="chat_gemini_model">Gemini model: %1$s</string>
 </resources>

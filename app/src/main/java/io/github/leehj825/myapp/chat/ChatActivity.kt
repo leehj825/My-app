@@ -97,6 +97,9 @@ class ChatActivity : ComponentActivity() {
         geminiCheck = findViewById(R.id.chat_gemini)
         // Shown only in builds that have a Gemini key.
         geminiCheck.visibility = if (GeminiClient.available) View.VISIBLE else View.GONE
+        geminiCheck.setOnCheckedChangeListener { _, checked ->
+            if (checked) showStatusText(getString(R.string.chat_gemini_selected))
+        }
         input = findViewById(R.id.chat_input)
         sendButton = findViewById(R.id.chat_send)
         stopButton = findViewById(R.id.chat_stop)
@@ -268,6 +271,7 @@ class ChatActivity : ComponentActivity() {
                 val answer = GeminiClient.generate(text)
                 tokens = answer.length
                 showReply(answer)
+                showStatusText(getString(R.string.chat_gemini_model, GeminiClient.lastModel.orEmpty()))
                 speak(answer)
             } catch (e: Exception) {
                 Log.e(TAG, "Gemini failed", e)

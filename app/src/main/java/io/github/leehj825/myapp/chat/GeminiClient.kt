@@ -22,13 +22,17 @@ object GeminiClient {
         var lastError: IllegalStateException? = null
         for (model in MODELS) {
             try {
-                return generateWith(model, prompt)
+                return generateWith(model, prompt).also { lastModel = model }
             } catch (e: ModelNotFound) {
                 lastError = IllegalStateException("model $model not found (HTTP 404)")
             }
         }
         throw lastError ?: IllegalStateException("no Gemini model available")
     }
+
+    /** The model that answered the last request, for the chat to show. Null until a reply has come back. */
+    @Volatile var lastModel: String? = null
+        private set
 
     private class ModelNotFound : RuntimeException()
 
