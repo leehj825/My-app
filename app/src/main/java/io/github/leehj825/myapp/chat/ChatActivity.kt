@@ -271,7 +271,8 @@ class ChatActivity : ComponentActivity() {
                 speak(answer)
             } catch (e: Exception) {
                 Log.e(TAG, "Gemini failed", e)
-                showStatus(R.string.chat_gemini_failed)
+                // Show the reason (for example the HTTP code) so the cause can be found.
+                showStatusText(getString(R.string.chat_gemini_failed) + " (" + (e.message ?: e.javaClass.simpleName) + ")")
             } finally {
                 main.post { finishReply() }
             }
