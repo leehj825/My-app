@@ -164,8 +164,7 @@ class ChatActivity : ComponentActivity() {
         }
         addLine(getString(R.string.chat_you), text)
         reply = addLine(getString(R.string.chat_assistant), "")
-        // Small models often ignore the system instruction on language, so the reply language is stated in every message.
-        val prompt = "$text\n${replyLanguageHint(text)}"
+        val prompt = text
 
         startedAt = System.currentTimeMillis()
         tokens = 0
@@ -204,16 +203,6 @@ class ChatActivity : ComponentActivity() {
         sendButton.isEnabled = true
         val seconds = (System.currentTimeMillis() - startedAt) / 1000
         progress.text = getString(R.string.chat_done, tokens, seconds)
-    }
-
-    /** The language to reply in: Korean if the message has Hangul, otherwise the language set in Voice settings or the phone's. */
-    private fun replyLanguageHint(text: String): String {
-        val language = if (VoicePrefs.containsHangul(text)) {
-            "Korean"
-        } else {
-            VoicePrefs.locale(this).getDisplayLanguage(Locale.ENGLISH)
-        }
-        return "(Reply only in $language, in one or two short sentences.)"
     }
 
     private fun addLine(who: String, text: String): TextView {
@@ -274,8 +263,8 @@ class ChatActivity : ComponentActivity() {
 
     companion object {
         private const val TAG = "ChatActivity"
-        private const val MAX_REPLY_TOKENS = 120
+        private const val MAX_REPLY_TOKENS = 512
         private const val SYSTEM_PROMPT =
-            "You are a helpful assistant. Reply briefly, in the language the user writes in. Never reply in Chinese unless the user writes in Chinese."
+            "You are a helpful assistant. Reply in the language the user writes in."
     }
 }
