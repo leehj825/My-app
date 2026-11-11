@@ -1,6 +1,14 @@
 cmake_minimum_required(VERSION 3.22.1)
 project("myapp_llm" LANGUAGES C CXX)
 
+# The app is built in debug mode, which turns off compiler optimisation and makes the model several
+# times slower. The native code is always built optimised.
+set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
+
+# Use the 64-bit ARM instructions that current phones have (dot-product and half-float), which the
+# model's math uses. All ARMv8.2 phones (2018 and later) have them.
+add_compile_options(-march=armv8.2-a+dotprod+fp16)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
