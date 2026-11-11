@@ -133,10 +133,12 @@ class ChatActivity : ComponentActivity() {
         }
         addLine(getString(R.string.chat_you), text)
         reply = addLine(getString(R.string.chat_assistant), "")
+        // Small models often ignore the system instruction on language, so the reply language is stated in every message.
+        val prompt = "$text\n${replyLanguageHint(text)}"
         worker.execute {
             val answer = StringBuilder()
             try {
-                if (LlmEngine.processUserPrompt(text, MAX_REPLY_TOKENS) != 0) {
+                if (LlmEngine.processUserPrompt(prompt, MAX_REPLY_TOKENS) != 0) {
                     throw IllegalStateException("the prompt could not be processed")
                 }
                 while (true) {
@@ -150,6 +152,16 @@ class ChatActivity : ComponentActivity() {
             }
             speak(answer.toString())
         }
+    }
+
+    /** The language to reply in: Korean if the message has Hangul, otherwise the language set in Voice settings or the phone's. */
+    private fun replyLanguageHint(text: String): String {
+        val language = if (VoicePrefs.containsHangul(text)) {
+            "Korean"
+        } else {
+            VoicePrefs.locale(this).getDisplayLanguage(Locale.ENGLISH)
+        }
+        return "(Reply only in $language.)"
     }
 
     private fun addLine(who: String, text: String): TextView {
@@ -208,6 +220,6 @@ class ChatActivity : ComponentActivity() {
         private const val TAG = "ChatActivity"
         private const val MAX_REPLY_TOKENS = 256
         private const val SYSTEM_PROMPT =
-            "You are a helpful assistant. Reply briefly, in the same language as the user's message."
+            "You are a helpful assistant. Reply briefly, in the language the user writes in. Never reply in Chinese unless the user writes in Chinese."
     }
 }
