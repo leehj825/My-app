@@ -26,6 +26,9 @@ jobs:
           gradle-version: '8.13'
 
       - name: Build the debug APK
+        env:
+          # Read from the repository secret; it is built into the app and never written to the code.
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
         run: gradle --no-daemon assembleDebug
 
       - name: Upload the APK

@@ -1,6 +1,7 @@
 package io.github.leehj825.myapp.chat
 
 import android.content.Context
+import io.github.leehj825.myapp.BuildConfig
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -18,8 +19,10 @@ object WebSearch {
     private const val KEY_API = "tavily_key"
     private const val ENDPOINT = "https://api.tavily.com/search"
 
+    /** The key built into the app from the TAVILY_API_KEY secret, or else the key saved on this phone. */
     fun apiKey(context: Context): String? =
-        prefs(context).getString(KEY_API, null)?.takeIf { it.isNotBlank() }
+        BuildConfig.TAVILY_API_KEY.takeIf { it.isNotBlank() }
+            ?: prefs(context).getString(KEY_API, null)?.takeIf { it.isNotBlank() }
 
     fun saveApiKey(context: Context, key: String) {
         prefs(context).edit().putString(KEY_API, key.trim()).apply()

@@ -15,6 +15,8 @@ android {
         targetSdk 34
         versionCode 1
         versionName '0.1.0'
+        // The Tavily key comes from the build environment (the GitHub secret TAVILY_API_KEY). It is not in the code.
+        buildConfigField 'String', 'TAVILY_API_KEY', "\"${System.getenv('TAVILY_API_KEY') ?: ''}\""
         ndk {
             // The Galaxy Z Fold8 and other current phones are 64-bit ARM. Smaller build and APK.
             abiFilters 'arm64-v8a'
@@ -26,6 +28,10 @@ android {
             path 'src/main/cpp/CMakeLists.txt'
             version '3.22.1'
         }
+    }
+
+    buildFeatures {
+        buildConfig true
     }
 
     buildTypes {
