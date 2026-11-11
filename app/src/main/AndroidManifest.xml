@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Web search in the chat (Tavily). The app talks to the internet only for that. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <!-- Foreground services: screen capture and the floating button. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />

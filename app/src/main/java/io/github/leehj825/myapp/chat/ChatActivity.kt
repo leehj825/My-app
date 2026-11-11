@@ -1,6 +1,7 @@
 package io.github.leehj825.myapp.chat
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -11,6 +12,7 @@ import android.speech.tts.TextToSpeech
 import android.util.Log
 import android.view.View
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -27,7 +29,8 @@ import java.util.concurrent.Executors
 /**
  * Chat with a GGUF model on the phone. Load your model file once; it is copied into the app's storage.
  * Type a message or dictate it. The reply appears as it is written, and is read aloud in your voice settings.
- * While the model works, a progress line shows the time; Stop ends a reply early. Nothing is sent off the phone.
+ * With "Search the web" on, the question is searched with Tavily first, and the sources are listed under the reply.
+ * While the model works, a progress line shows the time; Stop ends a reply early.
  */
 class ChatActivity : ComponentActivity() {
 
@@ -35,13 +38,14 @@ class ChatActivity : ComponentActivity() {
     private lateinit var progress: TextView
     private lateinit var log: LinearLayout
     private lateinit var logScroll: ScrollView
+    private lateinit var webSearch: CheckBox
     private lateinit var input: EditText
     private lateinit var sendButton: Button
     private lateinit var stopButton: Button
     private lateinit var loadModel: Button
     private lateinit var mic: Button
 
-    // All model calls run on this one thread; the UI is updated through [main].
+    // All model calls and web searches run on this one thread; the UI is updated through [main].
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
     private var tts: TextToSpeech? = null
@@ -51,19 +55,20 @@ class ChatActivity : ComponentActivity() {
 
     // Progress of the reply in progress.
     @Volatile private var generating = false
+    @Volatile private var searching = false
     @Volatile private var stopRequested = false
     @Volatile private var tokens = 0
     private var startedAt = 0L
 
-    /** Updates the progress line once a second while the model is working. */
+    /** Updates the progress line once a second while a reply is in progress. */
     private val ticker = object : Runnable {
         override fun run() {
             if (!generating) return
             val seconds = (System.currentTimeMillis() - startedAt) / 1000
-            progress.text = if (tokens == 0) {
-                getString(R.string.chat_thinking, seconds)
-            } else {
-                getString(R.string.chat_writing, tokens, seconds)
+            progress.text = when {
+                searching -> getString(R.string.chat_searching, seconds)
+                tokens == 0 -> getString(R.string.chat_thinking, seconds)
+                else -> getString(R.string.chat_writing, tokens, seconds)
             }
             main.postDelayed(this, 1000)
         }
@@ -87,6 +92,7 @@ class ChatActivity : ComponentActivity() {
         progress = findViewById(R.id.chat_progress)
         log = findViewById(R.id.chat_log)
         logScroll = findViewById(R.id.chat_scroll)
+        webSearch = findViewById(R.id.chat_web_search)
         input = findViewById(R.id.chat_input)
         sendButton = findViewById(R.id.chat_send)
         stopButton = findViewById(R.id.chat_stop)
@@ -103,6 +109,9 @@ class ChatActivity : ComponentActivity() {
         }
         stopButton.setOnClickListener { stopRequested = true }
         mic.setOnClickListener { dictate() }
+        webSearch.setOnCheckedChangeListener { _, checked ->
+            if (checked && WebSearch.apiKey(this) == null) askForApiKey()
+        }
 
         tts = TextToSpeech(this) { result -> ttsReady = result == TextToSpeech.SUCCESS }
 
@@ -121,6 +130,29 @@ class ChatActivity : ComponentActivity() {
     }
 
     private fun modelFile(): File = File(filesDir, "llm/model.gguf")
+
+    /** Asks for the Tavily key once. If cancelled, web search is turned off again. */
+    private fun askForApiKey() {
+        val field = EditText(this).apply {
+            hint = getString(R.string.chat_key_hint)
+            setSingleLine()
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.chat_key_title)
+            .setMessage(R.string.chat_key_note)
+            .setView(field)
+            .setPositiveButton(R.string.chat_key_save) { _, _ ->
+                val key = field.text.toString().trim()
+                if (key.isEmpty()) {
+                    webSearch.isChecked = false
+                } else {
+                    WebSearch.saveApiKey(this, key)
+                }
+            }
+            .setNegativeButton(R.string.chat_key_cancel) { _, _ -> webSearch.isChecked = false }
+            .setOnCancelListener { webSearch.isChecked = false }
+            .show()
+    }
 
     /** Copies the picked model into the app's storage, then loads it. Runs on the worker thread. */
     private fun loadFrom(uri: Uri) {
@@ -164,11 +196,12 @@ class ChatActivity : ComponentActivity() {
         }
         addLine(getString(R.string.chat_you), text)
         reply = addLine(getString(R.string.chat_assistant), "")
-        val prompt = text
+        val apiKey = if (webSearch.isChecked) WebSearch.apiKey(this) else null
 
         startedAt = System.currentTimeMillis()
         tokens = 0
         stopRequested = false
+        searching = apiKey != null
         generating = true
         stopButton.visibility = View.VISIBLE
         sendButton.isEnabled = false
@@ -176,7 +209,20 @@ class ChatActivity : ComponentActivity() {
 
         worker.execute {
             val answer = StringBuilder()
+            var sources: List<WebResult> = emptyList()
             try {
+                var prompt = text
+                if (apiKey != null) {
+                    try {
+                        sources = WebSearch.search(apiKey, text)
+                        if (sources.isNotEmpty()) prompt = withSources(text, sources)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Web search failed", e)
+                        showStatus(R.string.chat_search_failed)
+                    }
+                }
+                searching = false
+
                 if (LlmEngine.processUserPrompt(prompt, MAX_REPLY_TOKENS) != 0) {
                     throw IllegalStateException("the prompt could not be processed")
                 }
@@ -190,9 +236,33 @@ class ChatActivity : ComponentActivity() {
                 Log.e(TAG, "Reply failed", e)
                 showStatus(R.string.chat_failed)
             } finally {
+                searching = false
                 main.post { finishReply() }
             }
+            showSources(sources)
             speak(answer.toString())
+        }
+    }
+
+    /** The question with the search results in front of it, so the model answers from them. */
+    private fun withSources(question: String, sources: List<WebResult>): String {
+        val results = sources.mapIndexed { i, r -> "[${i + 1}] ${r.title}\n${r.content.take(700)}" }
+            .joinToString("\n\n")
+        return "Use these web search results to answer the question. Cite the results you use as [1], [2]. " +
+            "If they do not answer it, say so.\n\nResults:\n$results\n\nQuestion: $question"
+    }
+
+    /** Lists the sources under the reply, with their links. */
+    private fun showSources(sources: List<WebResult>) {
+        if (sources.isEmpty()) return
+        val body = sources.mapIndexed { i, r -> "[${i + 1}] ${r.title}\n${r.url}" }.joinToString("\n")
+        main.post {
+            log.addView(TextView(this).apply {
+                text = getString(R.string.chat_sources) + "\n" + body
+                textSize = 13f
+                setPadding(0, 0, 0, 8)
+            })
+            logScroll.fullScroll(ScrollView.FOCUS_DOWN)
         }
     }
 

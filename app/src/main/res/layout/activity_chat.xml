@@ -12,6 +12,13 @@
         android:text="@string/chat_no_model"
         android:textSize="14sp" />
 
+    <TextView
+        android:id="@+id/chat_progress"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:textSize="13sp" />
+
     <ScrollView
         android:id="@+id/chat_scroll"
         android:layout_width="match_parent"
@@ -26,12 +33,11 @@
             android:orientation="vertical" />
     </ScrollView>
 
-    <TextView
-        android:id="@+id/chat_progress"
+    <CheckBox
+        android:id="@+id/chat_web_search"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:textSize="13sp" />
+        android:text="@string/chat_web_search" />
 
     <EditText
         android:id="@+id/chat_input"

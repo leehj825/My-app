@@ -100,4 +100,13 @@
     <string name="chat_done">Done: %1$d tokens in %2$d s</string>
     <string name="chat_stop">Stop</string>
     <string name="chat_ready_with">Model loaded: %1$s. Type a message.</string>
+    <string name="chat_web_search">Search the web (Tavily)</string>
+    <string name="chat_searching">Searching the web… %1$d s</string>
+    <string name="chat_search_failed">Web search failed. Answering without it.</string>
+    <string name="chat_sources">Sources</string>
+    <string name="chat_key_title">Tavily API key</string>
+    <string name="chat_key_hint">Paste your Tavily API key</string>
+    <string name="chat_key_note">With web search on, your question is sent to Tavily. Nothing else leaves the phone. The key is stored on this phone only.</string>
+    <string name="chat_key_save">Save</string>
+    <string name="chat_key_cancel">Cancel</string>
 </resources>
