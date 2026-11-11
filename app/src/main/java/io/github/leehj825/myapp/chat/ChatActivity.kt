@@ -209,7 +209,7 @@ class ChatActivity : ComponentActivity() {
         } else {
             VoicePrefs.locale(this).getDisplayLanguage(Locale.ENGLISH)
         }
-        return "(Reply only in $language.)"
+        return "(Reply only in $language, in one or two short sentences.)"
     }
 
     private fun addLine(who: String, text: String): TextView {
@@ -266,7 +266,7 @@ class ChatActivity : ComponentActivity() {
 
     companion object {
         private const val TAG = "ChatActivity"
-        private const val MAX_REPLY_TOKENS = 256
+        private const val MAX_REPLY_TOKENS = 120
         private const val SYSTEM_PROMPT =
             "You are a helpful assistant. Reply briefly, in the language the user writes in. Never reply in Chinese unless the user writes in Chinese."
     }
