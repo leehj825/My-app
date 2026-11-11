@@ -95,4 +95,8 @@
     <string name="chat_mic">Speak</string>
     <string name="chat_you">You</string>
     <string name="chat_assistant">Assistant</string>
+    <string name="chat_thinking">Thinking… %1$d s</string>
+    <string name="chat_writing">Writing… %1$d tokens, %2$d s</string>
+    <string name="chat_done">Done: %1$d tokens in %2$d s</string>
+    <string name="chat_stop">Stop</string>
 </resources>

@@ -9,6 +9,7 @@ import android.os.Looper
 import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
 import android.util.Log
+import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -25,16 +26,18 @@ import java.util.concurrent.Executors
 
 /**
  * Chat with a GGUF model on the phone. Load your model file once; it is copied into the app's storage.
- * Type a message or dictate it, and the reply is written and read aloud in your voice settings.
- * Nothing is sent off the phone.
+ * Type a message or dictate it. The reply appears as it is written, and is read aloud in your voice settings.
+ * While the model works, a progress line shows the time; Stop ends a reply early. Nothing is sent off the phone.
  */
 class ChatActivity : ComponentActivity() {
 
     private lateinit var status: TextView
+    private lateinit var progress: TextView
     private lateinit var log: LinearLayout
     private lateinit var logScroll: ScrollView
     private lateinit var input: EditText
-    private lateinit var send: Button
+    private lateinit var sendButton: Button
+    private lateinit var stopButton: Button
     private lateinit var loadModel: Button
     private lateinit var mic: Button
 
@@ -45,6 +48,26 @@ class ChatActivity : ComponentActivity() {
     private var ttsReady = false
     @Volatile private var modelReady = false
     private var reply: TextView? = null
+
+    // Progress of the reply in progress.
+    @Volatile private var generating = false
+    @Volatile private var stopRequested = false
+    @Volatile private var tokens = 0
+    private var startedAt = 0L
+
+    /** Updates the progress line once a second while the model is working. */
+    private val ticker = object : Runnable {
+        override fun run() {
+            if (!generating) return
+            val seconds = (System.currentTimeMillis() - startedAt) / 1000
+            progress.text = if (tokens == 0) {
+                getString(R.string.chat_thinking, seconds)
+            } else {
+                getString(R.string.chat_writing, tokens, seconds)
+            }
+            main.postDelayed(this, 1000)
+        }
+    }
 
     private val pickModel = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) loadFrom(uri)
@@ -61,21 +84,24 @@ class ChatActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_chat)
         status = findViewById(R.id.chat_status)
+        progress = findViewById(R.id.chat_progress)
         log = findViewById(R.id.chat_log)
         logScroll = findViewById(R.id.chat_scroll)
         input = findViewById(R.id.chat_input)
-        send = findViewById(R.id.chat_send)
+        sendButton = findViewById(R.id.chat_send)
+        stopButton = findViewById(R.id.chat_stop)
         loadModel = findViewById(R.id.chat_load_model)
         mic = findViewById(R.id.chat_mic)
 
         loadModel.setOnClickListener { pickModel.launch(arrayOf("*/*")) }
-        send.setOnClickListener {
+        sendButton.setOnClickListener {
             val text = input.text.toString().trim()
             if (text.isNotEmpty()) {
                 input.setText("")
                 send(text)
             }
         }
+        stopButton.setOnClickListener { stopRequested = true }
         mic.setOnClickListener { dictate() }
 
         tts = TextToSpeech(this) { result -> ttsReady = result == TextToSpeech.SUCCESS }
@@ -88,6 +114,7 @@ class ChatActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        generating = false
         tts?.stop()
         tts?.shutdown()
         super.onDestroy()
@@ -135,23 +162,44 @@ class ChatActivity : ComponentActivity() {
         reply = addLine(getString(R.string.chat_assistant), "")
         // Small models often ignore the system instruction on language, so the reply language is stated in every message.
         val prompt = "$text\n${replyLanguageHint(text)}"
+
+        startedAt = System.currentTimeMillis()
+        tokens = 0
+        stopRequested = false
+        generating = true
+        stopButton.visibility = View.VISIBLE
+        sendButton.isEnabled = false
+        main.post(ticker)
+
         worker.execute {
             val answer = StringBuilder()
             try {
                 if (LlmEngine.processUserPrompt(prompt, MAX_REPLY_TOKENS) != 0) {
                     throw IllegalStateException("the prompt could not be processed")
                 }
-                while (true) {
+                while (!stopRequested) {
                     val piece = LlmEngine.generateNextToken() ?: break
                     answer.append(piece)
+                    tokens++
                     showReply(answer.toString())
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Reply failed", e)
                 showStatus(R.string.chat_failed)
+            } finally {
+                main.post { finishReply() }
             }
             speak(answer.toString())
         }
+    }
+
+    /** Ends the progress display after a reply, successful or not. */
+    private fun finishReply() {
+        generating = false
+        stopButton.visibility = View.GONE
+        sendButton.isEnabled = true
+        val seconds = (System.currentTimeMillis() - startedAt) / 1000
+        progress.text = getString(R.string.chat_done, tokens, seconds)
     }
 
     /** The language to reply in: Korean if the message has Hangul, otherwise the language set in Voice settings or the phone's. */
