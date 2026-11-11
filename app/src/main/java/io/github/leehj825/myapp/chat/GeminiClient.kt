@@ -11,15 +11,29 @@ import java.net.URL
  * The API key is built in from the GEMINI_API_KEY secret; the message is sent to Google.
  */
 object GeminiClient {
-    // The model name. If Google retires it, change it here.
-    private const val MODEL = "gemini-2.5-flash-lite"
+    // Flash-Lite model names to try, newest first. A name Google no longer knows gets HTTP 404 and the next one is tried.
+    private val MODELS = listOf("gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-2.5-flash-lite")
 
     /** True if this build has a Gemini key. The option is hidden otherwise. */
     val available: Boolean get() = BuildConfig.GEMINI_API_KEY.isNotBlank()
 
     /** Sends [prompt] to Gemini and returns the reply. Blocking: call from a worker thread. */
     fun generate(prompt: String): String {
-        val connection = URL("https://generativelanguage.googleapis.com/v1beta/models/$MODEL:generateContent")
+        var lastError: IllegalStateException? = null
+        for (model in MODELS) {
+            try {
+                return generateWith(model, prompt)
+            } catch (e: ModelNotFound) {
+                lastError = IllegalStateException("model $model not found (HTTP 404)")
+            }
+        }
+        throw lastError ?: IllegalStateException("no Gemini model available")
+    }
+
+    private class ModelNotFound : RuntimeException()
+
+    private fun generateWith(model: String, prompt: String): String {
+        val connection = URL("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent")
             .openConnection() as HttpURLConnection
         try {
             connection.requestMethod = "POST"
@@ -35,6 +49,7 @@ object GeminiClient {
             connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
 
             val code = connection.responseCode
+            if (code == HttpURLConnection.HTTP_NOT_FOUND) throw ModelNotFound()
             if (code != HttpURLConnection.HTTP_OK) {
                 throw IllegalStateException("Gemini failed with HTTP $code")
             }
