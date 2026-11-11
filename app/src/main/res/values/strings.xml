@@ -109,4 +109,6 @@
     <string name="chat_key_note">With web search on, your question is sent to Tavily. Nothing else leaves the phone. The key is stored on this phone only.</string>
     <string name="chat_key_save">Save</string>
     <string name="chat_key_cancel">Cancel</string>
+    <string name="chat_gemini_label">Use Gemini in the cloud (your message goes to Google)</string>
+    <string name="chat_gemini_failed">Gemini could not answer. Check the internet and the API key.</string>
 </resources>

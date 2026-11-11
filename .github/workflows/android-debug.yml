@@ -29,6 +29,7 @@ jobs:
         env:
           # Read from the repository secret; it is built into the app and never written to the code.
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: gradle --no-daemon assembleDebug
 
       - name: Upload the APK

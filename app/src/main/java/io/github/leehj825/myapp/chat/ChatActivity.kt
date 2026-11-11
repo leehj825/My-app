@@ -39,6 +39,7 @@ class ChatActivity : ComponentActivity() {
     private lateinit var log: LinearLayout
     private lateinit var logScroll: ScrollView
     private lateinit var webSearch: CheckBox
+    private lateinit var geminiCheck: CheckBox
     private lateinit var input: EditText
     private lateinit var sendButton: Button
     private lateinit var stopButton: Button
@@ -93,6 +94,9 @@ class ChatActivity : ComponentActivity() {
         log = findViewById(R.id.chat_log)
         logScroll = findViewById(R.id.chat_scroll)
         webSearch = findViewById(R.id.chat_web_search)
+        geminiCheck = findViewById(R.id.chat_gemini)
+        // Shown only in builds that have a Gemini key.
+        geminiCheck.visibility = if (GeminiClient.available) View.VISIBLE else View.GONE
         input = findViewById(R.id.chat_input)
         sendButton = findViewById(R.id.chat_send)
         stopButton = findViewById(R.id.chat_stop)
@@ -190,6 +194,10 @@ class ChatActivity : ComponentActivity() {
     }
 
     private fun send(text: String) {
+        if (geminiCheck.visibility == View.VISIBLE && geminiCheck.isChecked) {
+            sendToGemini(text)
+            return
+        }
         if (!modelReady) {
             Toast.makeText(this, R.string.chat_not_ready, Toast.LENGTH_SHORT).show()
             return
@@ -241,6 +249,32 @@ class ChatActivity : ComponentActivity() {
             }
             showSources(sources)
             speak(answer.toString())
+        }
+    }
+
+    /** Sends the message to Gemini in the cloud, and shows the reply. The model on the phone is not used. */
+    private fun sendToGemini(text: String) {
+        addLine(getString(R.string.chat_you), text)
+        reply = addLine(getString(R.string.chat_assistant), "")
+        startedAt = System.currentTimeMillis()
+        tokens = 0
+        searching = false
+        generating = true
+        stopButton.visibility = View.GONE
+        sendButton.isEnabled = false
+        main.post(ticker)
+        worker.execute {
+            try {
+                val answer = GeminiClient.generate(text)
+                tokens = answer.length
+                showReply(answer)
+                speak(answer)
+            } catch (e: Exception) {
+                Log.e(TAG, "Gemini failed", e)
+                showStatus(R.string.chat_gemini_failed)
+            } finally {
+                main.post { finishReply() }
+            }
         }
     }
 
