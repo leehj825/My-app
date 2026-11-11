@@ -2,6 +2,7 @@
 // Adapted from the llama.cpp Android example (examples/llama.android/lib/src/main/cpp/ai_chat.cpp, MIT licence).
 #include <android/log.h>
 #include <jni.h>
+#include <iomanip>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -379,4 +380,25 @@ extern "C"
 JNIEXPORT void JNICALL
 Java_io_github_leehj825_myapp_chat_LlmEngine_shutdown(JNIEnv * /*unused*/, jobject /*unused*/) {
     llama_backend_free();
+}
+
+extern "C"
+JNIEXPORT jstring JNICALL
+Java_io_github_leehj825_myapp_chat_LlmEngine_modelInfo(JNIEnv *env, jobject /*unused*/) {
+    if (!g_model) {
+        return env->NewStringUTF("");
+    }
+    // The model file stores its own name; the description gives the architecture and size.
+    char name[256] = {0};
+    llama_model_meta_val_str(g_model, "general.name", name, sizeof(name));
+    char desc[256] = {0};
+    llama_model_desc(g_model, desc, sizeof(desc));
+    const double size_gib = double(llama_model_size(g_model)) / 1024.0 / 1024.0 / 1024.0;
+    const double params_b = double(llama_model_n_params(g_model)) / 1e9;
+
+    std::ostringstream info;
+    info << (name[0] ? name : desc) << " (" << desc << ", "
+         << std::fixed << std::setprecision(1) << params_b << "B parameters, "
+         << size_gib << " GiB)";
+    return env->NewStringUTF(info.str().c_str());
 }

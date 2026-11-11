@@ -37,6 +37,9 @@ object LlmEngine {
     /** The next piece of the reply, or null when the reply is finished. */
     external fun generateNextToken(): String?
 
+    /** The model's name and size, from the model file. Empty if no model is loaded. */
+    external fun modelInfo(): String
+
     /** Frees the model and the conversation. */
     external fun unload()
 

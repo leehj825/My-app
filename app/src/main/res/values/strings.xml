@@ -99,4 +99,5 @@
     <string name="chat_writing">Writing… %1$d tokens, %2$d s</string>
     <string name="chat_done">Done: %1$d tokens in %2$d s</string>
     <string name="chat_stop">Stop</string>
+    <string name="chat_ready_with">Model loaded: %1$s. Type a message.</string>
 </resources>

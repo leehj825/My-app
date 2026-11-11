@@ -150,7 +150,11 @@ class ChatActivity : ComponentActivity() {
             LlmEngine.prepare() == 0 &&
             LlmEngine.processSystemPrompt(SYSTEM_PROMPT) == 0
         modelReady = ok
-        showStatus(if (ok) R.string.chat_ready else R.string.chat_failed)
+        if (ok) {
+            showStatusText(getString(R.string.chat_ready_with, LlmEngine.modelInfo()))
+        } else {
+            showStatus(R.string.chat_failed)
+        }
     }
 
     private fun send(text: String) {
@@ -233,6 +237,10 @@ class ChatActivity : ComponentActivity() {
 
     private fun showStatus(resId: Int) {
         main.post { status.setText(resId) }
+    }
+
+    private fun showStatusText(text: String) {
+        main.post { status.text = text }
     }
 
     /** Reads the reply aloud in the chosen voice. Korean replies are read in Korean. */
