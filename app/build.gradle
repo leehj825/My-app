@@ -5,6 +5,7 @@ plugins {
 
 android {
     namespace 'io.github.leehj825.myapp'
+    ndkVersion '27.0.12077973'
     compileSdk 34
 
     defaultConfig {
@@ -14,6 +15,17 @@ android {
         targetSdk 34
         versionCode 1
         versionName '0.1.0'
+        ndk {
+            // The Galaxy Z Fold8 and other current phones are 64-bit ARM. Smaller build and APK.
+            abiFilters 'arm64-v8a'
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path 'src/main/cpp/CMakeLists.txt'
+            version '3.22.1'
+        }
     }
 
     buildTypes {

@@ -81,4 +81,18 @@
     <string name="ai_status_unavailable">On-device AI is not available on this phone</string>
     <string name="ai_status_downloadable">On-device AI is supported, but its model still needs to be downloaded</string>
     <string name="ai_status_downloading">On-device AI model is downloading now</string>
+    <string name="tool_chat">Chat (on-device AI)</string>
+    <string name="tool_chat_desc">Chat with a language model that runs on this phone. You load your own GGUF model file.</string>
+    <string name="chat_no_model">Load a GGUF model file to start chatting.</string>
+    <string name="chat_load_model">Load model</string>
+    <string name="chat_copying">Copying the model file…</string>
+    <string name="chat_loading">Loading the model…</string>
+    <string name="chat_ready">Model ready. Type a message.</string>
+    <string name="chat_failed">The model could not be loaded on this phone.</string>
+    <string name="chat_not_ready">Load a model first</string>
+    <string name="chat_hint">Type a message</string>
+    <string name="chat_send">Send</string>
+    <string name="chat_mic">Speak</string>
+    <string name="chat_you">You</string>
+    <string name="chat_assistant">Assistant</string>
 </resources>
