@@ -68,6 +68,10 @@
             android:exported="false" />
 
         <activity
+            android:name=".image.ImageActivity"
+            android:exported="false" />
+
+        <activity
             android:name=".secure.SecureNotesActivity"
             android:exported="false" />
 

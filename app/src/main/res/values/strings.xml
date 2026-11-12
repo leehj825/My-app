@@ -137,4 +137,13 @@
         <item>Last 20 messages</item>
         <item>Whole chat</item>
     </string-array>
+    <string name="tool_image">Image (Google AI)</string>
+    <string name="tool_image_desc">Make a picture from a description. The description is sent to Google. Saved to Pictures/MyApp.</string>
+    <string name="image_hint">Describe the picture</string>
+    <string name="image_generate">Generate</string>
+    <string name="image_working">Creating the picture…</string>
+    <string name="image_empty">Describe a picture first</string>
+    <string name="image_saved">Saved to Pictures/MyApp (%1$s)</string>
+    <string name="image_none">No picture was returned. The request may have been blocked, so try different words.</string>
+    <string name="image_failed">The picture could not be created: %1$s</string>
 </resources>

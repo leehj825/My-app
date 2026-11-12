@@ -3,7 +3,9 @@ package io.github.leehj825.myapp
 import android.app.Activity
 import androidx.annotation.StringRes
 import io.github.leehj825.myapp.chat.ChatActivity
+import io.github.leehj825.myapp.chat.GeminiClient
 import io.github.leehj825.myapp.chat.LlmEngine
+import io.github.leehj825.myapp.image.ImageActivity
 import io.github.leehj825.myapp.journal.JournalActivity
 import io.github.leehj825.myapp.notes.NotesActivity
 import io.github.leehj825.myapp.recorder.ScreenRecorderActivity
@@ -12,13 +14,13 @@ import io.github.leehj825.myapp.voice.VoiceSettingsActivity
 
 /**
  * One tool in the app: its name and description on the home screen, and the activity that opens it.
- * [requiresLlm] tools are shown only on phones where the on-device language model library loads.
+ * [available] says whether this phone or build can use the tool; unavailable tools are not shown.
  */
 data class Tool(
     @StringRes val name: Int,
     @StringRes val description: Int,
     val activity: Class<out Activity>,
-    val requiresLlm: Boolean = false,
+    val available: () -> Boolean = { true },
 )
 
 /** All tools, in the order they appear on the home screen. To add one, write its activity and list it here. */
@@ -53,10 +55,16 @@ object Tools {
             name = R.string.tool_chat,
             description = R.string.tool_chat_desc,
             activity = ChatActivity::class.java,
-            requiresLlm = true,
+            available = { LlmEngine.libraryLoaded },
+        ),
+        Tool(
+            name = R.string.tool_image,
+            description = R.string.tool_image_desc,
+            activity = ImageActivity::class.java,
+            available = { GeminiClient.available },
         ),
     )
 
-    /** The tools this phone can use. */
-    fun available(): List<Tool> = all.filter { !it.requiresLlm || LlmEngine.libraryLoaded }
+    /** The tools this phone and build can use. */
+    fun available(): List<Tool> = all.filter { it.available() }
 }
