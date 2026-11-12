@@ -8,7 +8,7 @@ import java.net.URL
 
 /**
  * Gemini in the cloud (Google's Gemini API). Used only when the user turns it on in the chat.
- * The API key is built in from the GEMINI_API_KEY secret; the message is sent to Google.
+ * The API key is built in from the GEMINI_API_KEY secret. The conversation sent is the one the chat chose.
  */
 object GeminiClient {
     // Flash-Lite model names to try, newest first. A name Google no longer knows gets HTTP 404 and the next one is tried.
@@ -17,12 +17,18 @@ object GeminiClient {
     /** True if this build has a Gemini key. The option is hidden otherwise. */
     val available: Boolean get() = BuildConfig.GEMINI_API_KEY.isNotBlank()
 
-    /** Sends [prompt] to Gemini and returns the reply. Blocking: call from a worker thread. */
-    fun generate(prompt: String): String {
+    /** The model that answered the last request, for the chat to show. Null until a reply has come back. */
+    @Volatile var lastModel: String? = null
+        private set
+
+    private class ModelNotFound : RuntimeException()
+
+    /** Sends [conversation] (the messages so far, ending with the new user message) and returns the reply. Blocking. */
+    fun generate(conversation: List<ChatMessage>): String {
         var lastError: IllegalStateException? = null
         for (model in MODELS) {
             try {
-                return generateWith(model, prompt).also { lastModel = model }
+                return generateWith(model, conversation).also { lastModel = model }
             } catch (e: ModelNotFound) {
                 lastError = IllegalStateException("model $model not found (HTTP 404)")
             }
@@ -30,13 +36,7 @@ object GeminiClient {
         throw lastError ?: IllegalStateException("no Gemini model available")
     }
 
-    /** The model that answered the last request, for the chat to show. Null until a reply has come back. */
-    @Volatile var lastModel: String? = null
-        private set
-
-    private class ModelNotFound : RuntimeException()
-
-    private fun generateWith(model: String, prompt: String): String {
+    private fun generateWith(model: String, conversation: List<ChatMessage>): String {
         val connection = URL("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent")
             .openConnection() as HttpURLConnection
         try {
@@ -46,10 +46,16 @@ object GeminiClient {
             connection.doOutput = true
             connection.setRequestProperty("Content-Type", "application/json")
             connection.setRequestProperty("x-goog-api-key", BuildConfig.GEMINI_API_KEY)
-            val body = JSONObject().put(
-                "contents",
-                JSONArray().put(JSONObject().put("parts", JSONArray().put(JSONObject().put("text", prompt))))
-            )
+
+            val contents = JSONArray()
+            for (m in conversation) {
+                contents.put(
+                    JSONObject()
+                        .put("role", if (m.role == "user") "user" else "model")
+                        .put("parts", JSONArray().put(JSONObject().put("text", m.text)))
+                )
+            }
+            val body = JSONObject().put("contents", contents)
             connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
 
             val code = connection.responseCode

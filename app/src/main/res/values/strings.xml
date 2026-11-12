@@ -113,4 +113,15 @@
     <string name="chat_gemini_failed">Gemini could not answer. Check the internet and the API key.</string>
     <string name="chat_gemini_selected">Gemini selected. Its model name appears after the first reply.</string>
     <string name="chat_gemini_model">Gemini model: %1$s</string>
+    <string name="chat_new">New chat</string>
+    <string name="chat_open">Chats</string>
+    <string name="chat_busy">Wait for the reply to finish</string>
+    <string name="chat_none">No saved chats yet</string>
+    <string name="chat_memory_label">How much of the chat is sent with each new message:</string>
+    <string-array name="chat_memory_options">
+        <item>Only this message</item>
+        <item>Last 4 messages</item>
+        <item>Last 10 messages</item>
+        <item>Whole chat</item>
+    </string-array>
 </resources>

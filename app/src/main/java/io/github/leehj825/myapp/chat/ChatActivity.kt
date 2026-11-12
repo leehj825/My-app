@@ -11,26 +11,30 @@ import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
 import android.util.Log
 import android.view.View
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import io.github.leehj825.myapp.R
+import io.github.leehj825.myapp.notes.formatNoteTime
 import io.github.leehj825.myapp.voice.VoicePrefs
 import java.io.File
 import java.util.Locale
 import java.util.concurrent.Executors
 
 /**
- * Chat with a GGUF model on the phone. Load your model file once; it is copied into the app's storage.
- * Type a message or dictate it. The reply appears as it is written, and is read aloud in your voice settings.
+ * Chat with a GGUF model on the phone, or with Gemini in the cloud when that is ticked.
+ * Chats are saved on the phone; New chat starts a blank one, and Chats opens a saved one.
+ * The "Memory" setting decides how many earlier messages are sent with each new message.
  * With "Search the web" on, the question is searched with Tavily first, and the sources are listed under the reply.
- * While the model works, a progress line shows the time; Stop ends a reply early.
  */
 class ChatActivity : ComponentActivity() {
 
@@ -38,8 +42,11 @@ class ChatActivity : ComponentActivity() {
     private lateinit var progress: TextView
     private lateinit var log: LinearLayout
     private lateinit var logScroll: ScrollView
-    private lateinit var webSearch: CheckBox
+    private lateinit var newChatButton: Button
+    private lateinit var openChatButton: Button
+    private lateinit var memorySpinner: Spinner
     private lateinit var geminiCheck: CheckBox
+    private lateinit var webSearch: CheckBox
     private lateinit var input: EditText
     private lateinit var sendButton: Button
     private lateinit var stopButton: Button
@@ -53,6 +60,10 @@ class ChatActivity : ComponentActivity() {
     private var ttsReady = false
     @Volatile private var modelReady = false
     private var reply: TextView? = null
+
+    // The open chat. Changed only on the main thread.
+    private var chatId = ""
+    private var messages: MutableList<ChatMessage> = mutableListOf()
 
     // Progress of the reply in progress.
     @Volatile private var generating = false
@@ -93,19 +104,42 @@ class ChatActivity : ComponentActivity() {
         progress = findViewById(R.id.chat_progress)
         log = findViewById(R.id.chat_log)
         logScroll = findViewById(R.id.chat_scroll)
-        webSearch = findViewById(R.id.chat_web_search)
+        newChatButton = findViewById(R.id.chat_new)
+        openChatButton = findViewById(R.id.chat_open)
+        memorySpinner = findViewById(R.id.chat_memory)
         geminiCheck = findViewById(R.id.chat_gemini)
-        // Shown only in builds that have a Gemini key.
-        geminiCheck.visibility = if (GeminiClient.available) View.VISIBLE else View.GONE
-        geminiCheck.setOnCheckedChangeListener { _, checked ->
-            if (checked) showStatusText(getString(R.string.chat_gemini_selected))
-        }
+        webSearch = findViewById(R.id.chat_web_search)
         input = findViewById(R.id.chat_input)
         sendButton = findViewById(R.id.chat_send)
         stopButton = findViewById(R.id.chat_stop)
         loadModel = findViewById(R.id.chat_load_model)
         mic = findViewById(R.id.chat_mic)
 
+        // Shown only in builds that have a Gemini key.
+        geminiCheck.visibility = if (GeminiClient.available) View.VISIBLE else View.GONE
+        geminiCheck.setOnCheckedChangeListener { _, checked ->
+            if (checked) showStatusText(getString(R.string.chat_gemini_selected))
+        }
+
+        chatId = ChatStore.currentId(this)
+        messages = ChatStore.load(this, chatId)
+        renderLog()
+
+        memorySpinner.adapter = ArrayAdapter(
+            this, android.R.layout.simple_spinner_dropdown_item,
+            resources.getStringArray(R.array.chat_memory_options)
+        )
+        memorySpinner.setSelection(MEMORY_VALUES.indexOf(ChatStore.memoryTurns(this)).coerceAtLeast(0))
+        memorySpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                ChatStore.setMemoryTurns(this@ChatActivity, MEMORY_VALUES[position])
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+
+        newChatButton.setOnClickListener { startNewChat() }
+        openChatButton.setOnClickListener { chooseChat() }
         loadModel.setOnClickListener { pickModel.launch(arrayOf("*/*")) }
         sendButton.setOnClickListener {
             val text = input.text.toString().trim()
@@ -137,6 +171,54 @@ class ChatActivity : ComponentActivity() {
     }
 
     private fun modelFile(): File = File(filesDir, "llm/model.gguf")
+
+    /** Starts a blank chat. The one being written is already saved. */
+    private fun startNewChat() {
+        if (generating) {
+            Toast.makeText(this, R.string.chat_busy, Toast.LENGTH_SHORT).show()
+            return
+        }
+        chatId = ChatStore.newChat(this)
+        messages = mutableListOf()
+        reply = null
+        progress.text = ""
+        renderLog()
+    }
+
+    /** Lists the saved chats and opens the one picked. */
+    private fun chooseChat() {
+        if (generating) {
+            Toast.makeText(this, R.string.chat_busy, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val chats = ChatStore.list(this)
+        if (chats.isEmpty()) {
+            Toast.makeText(this, R.string.chat_none, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val labels = chats.map { "${formatNoteTime(it.modified)}  ${it.title}" }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle(R.string.chat_open)
+            .setItems(labels) { _, which ->
+                chatId = chats[which].id
+                ChatStore.setCurrent(this, chatId)
+                messages = ChatStore.load(this, chatId)
+                reply = null
+                progress.text = ""
+                renderLog()
+            }
+            .setNegativeButton(R.string.note_close, null)
+            .show()
+    }
+
+    /** Shows the messages of the open chat. */
+    private fun renderLog() {
+        log.removeAllViews()
+        for (m in messages) {
+            addLine(getString(if (m.role == "user") R.string.chat_you else R.string.chat_assistant), m.text)
+        }
+        main.post { logScroll.fullScroll(ScrollView.FOCUS_DOWN) }
+    }
 
     /** Asks for the Tavily key once. If cancelled, web search is turned off again. */
     private fun askForApiKey() {
@@ -196,6 +278,34 @@ class ChatActivity : ComponentActivity() {
         }
     }
 
+    /** The earlier messages to send with a new one, as the memory setting chooses (newest kept if too long). */
+    private fun memoryFor(all: List<ChatMessage>): List<ChatMessage> {
+        val turns = ChatStore.memoryTurns(this)
+        val picked = if (turns < 0) all else all.takeLast(turns)
+        var size = 0
+        val kept = ArrayList<ChatMessage>()
+        for (m in picked.asReversed()) {
+            size += m.text.length
+            if (size > MAX_HISTORY_CHARS) break
+            kept.add(0, m)
+        }
+        return kept
+    }
+
+    /** Adds a message from the user to the open chat and saves it. */
+    private fun addUserMessage(text: String) {
+        messages.add(ChatMessage("user", text))
+        ChatStore.save(this, chatId, messages)
+        addLine(getString(R.string.chat_you), text)
+    }
+
+    /** Adds the assistant's reply to the open chat and saves it. Runs on the main thread. */
+    private fun addAssistantMessage(answer: String) {
+        if (answer.isBlank()) return
+        messages.add(ChatMessage("assistant", answer))
+        ChatStore.save(this, chatId, messages)
+    }
+
     private fun send(text: String) {
         if (geminiCheck.visibility == View.VISIBLE && geminiCheck.isChecked) {
             sendToGemini(text)
@@ -205,7 +315,8 @@ class ChatActivity : ComponentActivity() {
             Toast.makeText(this, R.string.chat_not_ready, Toast.LENGTH_SHORT).show()
             return
         }
-        addLine(getString(R.string.chat_you), text)
+        val history = memoryFor(messages)
+        addUserMessage(text)
         reply = addLine(getString(R.string.chat_assistant), "")
         val apiKey = if (webSearch.isChecked) WebSearch.apiKey(this) else null
 
@@ -222,11 +333,9 @@ class ChatActivity : ComponentActivity() {
             val answer = StringBuilder()
             var sources: List<WebResult> = emptyList()
             try {
-                var prompt = text
                 if (apiKey != null) {
                     try {
                         sources = WebSearch.search(apiKey, text)
-                        if (sources.isNotEmpty()) prompt = withSources(text, sources)
                     } catch (e: Exception) {
                         Log.e(TAG, "Web search failed", e)
                         showStatus(R.string.chat_search_failed)
@@ -234,6 +343,11 @@ class ChatActivity : ComponentActivity() {
                 }
                 searching = false
 
+                // The model keeps no memory of its own: the chat sends what the memory setting allows.
+                val prompt = buildPrompt(history, text, sources)
+                if (LlmEngine.processSystemPrompt(SYSTEM_PROMPT) != 0) {
+                    throw IllegalStateException("the conversation could not be reset")
+                }
                 if (LlmEngine.processUserPrompt(prompt, MAX_REPLY_TOKENS) != 0) {
                     throw IllegalStateException("the prompt could not be processed")
                 }
@@ -248,16 +362,20 @@ class ChatActivity : ComponentActivity() {
                 showStatus(R.string.chat_failed)
             } finally {
                 searching = false
-                main.post { finishReply() }
+                main.post {
+                    addAssistantMessage(answer.toString())
+                    finishReply()
+                }
             }
             showSources(sources)
             speak(answer.toString())
         }
     }
 
-    /** Sends the message to Gemini in the cloud, and shows the reply. The model on the phone is not used. */
+    /** Sends the chat (as the memory setting allows) to Gemini in the cloud, and shows the reply. */
     private fun sendToGemini(text: String) {
-        addLine(getString(R.string.chat_you), text)
+        val conversation = memoryFor(messages) + ChatMessage("user", text)
+        addUserMessage(text)
         reply = addLine(getString(R.string.chat_assistant), "")
         startedAt = System.currentTimeMillis()
         tokens = 0
@@ -267,28 +385,46 @@ class ChatActivity : ComponentActivity() {
         sendButton.isEnabled = false
         main.post(ticker)
         worker.execute {
+            var answer = ""
             try {
-                val answer = GeminiClient.generate(text)
+                answer = GeminiClient.generate(conversation)
                 tokens = answer.length
                 showReply(answer)
                 showStatusText(getString(R.string.chat_gemini_model, GeminiClient.lastModel.orEmpty()))
-                speak(answer)
             } catch (e: Exception) {
                 Log.e(TAG, "Gemini failed", e)
                 // Show the reason (for example the HTTP code) so the cause can be found.
                 showStatusText(getString(R.string.chat_gemini_failed) + " (" + (e.message ?: e.javaClass.simpleName) + ")")
             } finally {
-                main.post { finishReply() }
+                val finished = answer
+                main.post {
+                    addAssistantMessage(finished)
+                    finishReply()
+                }
             }
+            speak(answer)
         }
     }
 
-    /** The question with the search results in front of it, so the model answers from them. */
-    private fun withSources(question: String, sources: List<WebResult>): String {
+    /** The message to the model: the earlier conversation, the new message, and any web results. */
+    private fun buildPrompt(history: List<ChatMessage>, question: String, sources: List<WebResult>): String {
+        val conversation = if (history.isEmpty()) {
+            question
+        } else {
+            buildString {
+                append("Conversation so far:\n")
+                for (m in history) {
+                    append(if (m.role == "user") "User: " else "Assistant: ")
+                    append(m.text).append('\n')
+                }
+                append("\nNew message from the user: ").append(question)
+            }
+        }
+        if (sources.isEmpty()) return conversation
         val results = sources.mapIndexed { i, r -> "[${i + 1}] ${r.title}\n${r.content.take(700)}" }
             .joinToString("\n\n")
         return "Use these web search results to answer the question. Cite the results you use as [1], [2]. " +
-            "If they do not answer it, say so.\n\nResults:\n$results\n\nQuestion: $question"
+            "If they do not answer it, say so.\n\nResults:\n$results\n\n$conversation"
     }
 
     /** Lists the sources under the reply, with their links. */
@@ -373,6 +509,10 @@ class ChatActivity : ComponentActivity() {
     companion object {
         private const val TAG = "ChatActivity"
         private const val MAX_REPLY_TOKENS = 512
+        // The memory choices, in the order of the dropdown. -1 is the whole chat.
+        private val MEMORY_VALUES = listOf(0, 4, 10, -1)
+        // Earlier messages sent to the on-phone model are cut to this many characters, to fit its context.
+        private const val MAX_HISTORY_CHARS = 3000
         private const val SYSTEM_PROMPT =
             "You are a helpful assistant. Reply in the language the user writes in."
     }
