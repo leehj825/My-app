@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.util.Log
@@ -44,6 +45,7 @@ class ImageActivity : ComponentActivity() {
     private lateinit var loadModel: Button
     private lateinit var presetSpinner: Spinner
     private lateinit var stepsField: EditText
+    private lateinit var threadsField: EditText
     private lateinit var generate: Button
     private lateinit var progress: TextView
     private lateinit var preview: ImageView
@@ -56,6 +58,8 @@ class ImageActivity : ComponentActivity() {
     // The settings for the loaded model: the preset (guidance) and the number of steps it is run with.
     @Volatile private var preset = ImagePreset.SD
     @Volatile private var steps = ImagePreset.SD.steps
+    // How many CPU threads the model uses. It is set when the model is loaded, so changing it reloads the model.
+    @Volatile private var threads = DEFAULT_THREADS
 
     private val pickModel = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) loadFrom(uri)
@@ -69,6 +73,7 @@ class ImageActivity : ComponentActivity() {
         loadModel = findViewById(R.id.image_load_model)
         presetSpinner = findViewById(R.id.image_preset)
         stepsField = findViewById(R.id.image_steps)
+        threadsField = findViewById(R.id.image_threads)
         generate = findViewById(R.id.image_generate)
         progress = findViewById(R.id.image_progress)
         preview = findViewById(R.id.image_preview)
@@ -101,6 +106,9 @@ class ImageActivity : ComponentActivity() {
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
 
+        threads = getSharedPreferences(PREFS, MODE_PRIVATE).getInt(KEY_THREADS, DEFAULT_THREADS)
+        threadsField.setText(threads.toString())
+
         loadModel.setOnClickListener { pickModel.launch(arrayOf("*/*")) }
         generate.setOnClickListener { onGenerate() }
 
@@ -130,6 +138,7 @@ class ImageActivity : ComponentActivity() {
         loadModel.visibility = visibility
         presetSpinner.visibility = visibility
         stepsField.visibility = visibility
+        threadsField.visibility = visibility
     }
 
     private fun presetKey(name: String): String = "preset:$name"
@@ -163,6 +172,24 @@ class ImageActivity : ComponentActivity() {
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().putInt(stepsKey(modelName()), value).apply()
     }
 
+    /** Reads the threads box (1 to MAX_THREADS) and remembers it. Main thread. */
+    private fun readThreads() {
+        val value = (threadsField.text.toString().toIntOrNull() ?: DEFAULT_THREADS).coerceIn(1, MAX_THREADS)
+        threads = value
+        threadsField.setText(value.toString())
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putInt(KEY_THREADS, value).apply()
+    }
+
+    /** Loads the model again if the threads box changed since it was loaded. Worker thread. True if it is ready. */
+    private fun ensureThreads(): Boolean {
+        if (modelReady && loadedThreads != threads) {
+            LocalImage.unload()
+            modelReady = false
+            initModel(modelFile())
+        }
+        return modelReady
+    }
+
     private fun modelFile(): File = File(filesDir, "image/model.gguf")
 
     private fun modelName(): String =
@@ -182,6 +209,7 @@ class ImageActivity : ComponentActivity() {
                 return
             }
             readSteps()
+            readThreads()
             generateOnPhone(text)
         }
     }
@@ -229,7 +257,7 @@ class ImageActivity : ComponentActivity() {
         setBusy()
         worker.execute {
             try {
-                makeOnPhone(text, "")
+                if (ensureThreads()) makeOnPhone(text, "") else show(getString(R.string.image_model_failed), "")
             } finally {
                 main.post { generate.isEnabled = true }
             }
@@ -239,7 +267,12 @@ class ImageActivity : ComponentActivity() {
     /** Makes the picture with the loaded model. Runs on the worker thread. [note] is shown under the picture. */
     private fun makeOnPhone(text: String, note: String) {
         try {
-            val rgb = LocalImage.generate(text, "", SIZE, SIZE, steps, preset.guidance, Random.nextLong(1L shl 31))
+            val usedSteps = steps
+            val usedThreads = loadedThreads
+            val startedAt = SystemClock.elapsedRealtime()
+            val rgb = LocalImage.generate(text, "", SIZE, SIZE, usedSteps, preset.guidance, Random.nextLong(1L shl 31))
+            val seconds = (SystemClock.elapsedRealtime() - startedAt) / 1000.0
+            Log.i(TAG, "On-phone picture: $seconds s, $usedSteps steps, $usedThreads threads")
             if (rgb == null || rgb.size != SIZE * SIZE * 3) {
                 show(getString(R.string.image_local_failed), "")
             } else {
@@ -253,7 +286,7 @@ class ImageActivity : ComponentActivity() {
                 main.post {
                     preview.setImageBitmap(bitmap)
                     status.text = getString(R.string.image_saved, model)
-                    progress.text = note
+                    progress.text = (note + " " + getString(R.string.image_timing, seconds, usedSteps, usedThreads)).trim()
                 }
             }
         } catch (e: Exception) {
@@ -305,9 +338,11 @@ class ImageActivity : ComponentActivity() {
     /** Loads the model file. Runs on the worker thread. */
     private fun initModel(file: File) {
         showStatus(R.string.image_loading)
-        val threads = (Runtime.getRuntime().availableProcessors() - 2).coerceIn(2, 4)
+        val startedAt = SystemClock.elapsedRealtime()
         val ok = LocalImage.load(file.absolutePath, threads) == 0
+        Log.i(TAG, "Model load: ${SystemClock.elapsedRealtime() - startedAt} ms, $threads threads, ok=$ok")
         modelReady = ok
+        loadedThreads = if (ok) threads else 0
         if (ok) {
             showSettings(modelName())
             showStatusText(getString(R.string.image_model_ready, modelName()))
@@ -355,6 +390,12 @@ class ImageActivity : ComponentActivity() {
         private const val TAG = "ImageActivity"
         private const val PREFS = "image"
         private const val KEY_MODEL_NAME = "model_name"
+        private const val KEY_THREADS = "threads"
+        // The Galaxy Z Fold8 (Snapdragon 8 Elite Gen 5) has 2 prime and 6 performance cores and no slow ones.
+        private const val DEFAULT_THREADS = 6
+        private const val MAX_THREADS = 8
+        // The threads the loaded model was started with. It outlives the screen, as the model does. 0 if none.
+        @Volatile private var loadedThreads = 0
         // Pictures are made at this size.
         private const val SIZE = 512
         // The most steps the steps box accepts.

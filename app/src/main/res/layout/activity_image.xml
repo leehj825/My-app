@@ -43,6 +43,14 @@
             android:inputType="number"
             android:visibility="gone" />
 
+        <EditText
+            android:id="@+id/image_threads"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/image_threads_hint"
+            android:inputType="number"
+            android:visibility="gone" />
+
         <Button
             android:id="@+id/image_generate"
             android:layout_width="match_parent"

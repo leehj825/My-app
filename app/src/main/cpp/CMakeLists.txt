@@ -44,7 +44,9 @@ target_link_libraries(myapp_llm
         android
         log)
 
-# Image tool: stable-diffusion.cpp (GGUF image models). It has its own copy of ggml, which would clash with
+# Image tool: stable-diffusion.cpp (GGUF image models). It is built with the 8-bit matrix instructions (i8mm), which
+# make quantized (Q8) models faster. The Galaxy Z Fold8 (Snapdragon 8 Elite Gen 5) has them; a phone without them
+# would crash in this library. It has its own copy of ggml, which would clash with
 # llama.cpp's ggml targets, so it is built as a separate CMake project (ExternalProject) and linked as
 # prebuilt static libraries. Its ggml libraries get "sd_" names so they do not clash with llama's.
 include(ExternalProject)
@@ -67,8 +69,8 @@ ExternalProject_Add(stable_diffusion_ext
             -DANDROID_ABI=${ANDROID_ABI}
             -DANDROID_PLATFORM=${ANDROID_PLATFORM}
             -DCMAKE_BUILD_TYPE=Release
-            -DCMAKE_C_FLAGS=-march=armv8.2-a+dotprod+fp16
-            -DCMAKE_CXX_FLAGS=-march=armv8.2-a+dotprod+fp16
+            -DCMAKE_C_FLAGS=-march=armv8.2-a+dotprod+fp16+i8mm
+            -DCMAKE_CXX_FLAGS=-march=armv8.2-a+dotprod+fp16+i8mm
             -DCMAKE_INSTALL_PREFIX=${SD_PREFIX}
             -DSD_BUILD_EXAMPLES=OFF
             -DSD_BUILD_SHARED_LIBS=OFF
