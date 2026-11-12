@@ -78,7 +78,7 @@ Java_io_github_leehj825_myapp_image_LocalImage_generate(
 
     if (!ok || !result || result->count < 1) {
         LOGe("generate: no picture was made");
-        if (result) free_sd_images(result);
+        if (result) free_sd_image_generation_result(result);
         return nullptr;
     }
 
@@ -89,7 +89,7 @@ Java_io_github_leehj825_myapp_image_LocalImage_generate(
         out = env->NewByteArray(jsize(size));
         env->SetByteArrayRegion(out, 0, jsize(size), reinterpret_cast<const jbyte *>(image.data));
     }
-    free_sd_images(result);
+    free_sd_image_generation_result(result);
     return out;
 }
 
