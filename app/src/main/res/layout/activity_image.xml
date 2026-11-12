@@ -35,6 +35,14 @@
             android:layout_height="wrap_content"
             android:visibility="gone" />
 
+        <EditText
+            android:id="@+id/image_steps"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/image_steps_hint"
+            android:inputType="number"
+            android:visibility="gone" />
+
         <Button
             android:id="@+id/image_generate"
             android:layout_width="match_parent"

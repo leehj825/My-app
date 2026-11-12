@@ -43,6 +43,7 @@ class ImageActivity : ComponentActivity() {
     private lateinit var geminiCheck: CheckBox
     private lateinit var loadModel: Button
     private lateinit var presetSpinner: Spinner
+    private lateinit var stepsField: EditText
     private lateinit var generate: Button
     private lateinit var progress: TextView
     private lateinit var preview: ImageView
@@ -52,8 +53,9 @@ class ImageActivity : ComponentActivity() {
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
     @Volatile private var modelReady = false
-    // The settings for the loaded model: the steps and guidance it is run with.
+    // The settings for the loaded model: the preset (guidance) and the number of steps it is run with.
     @Volatile private var preset = ImagePreset.SD
+    @Volatile private var steps = ImagePreset.SD.steps
 
     private val pickModel = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) loadFrom(uri)
@@ -66,6 +68,7 @@ class ImageActivity : ComponentActivity() {
         geminiCheck = findViewById(R.id.image_gemini)
         loadModel = findViewById(R.id.image_load_model)
         presetSpinner = findViewById(R.id.image_preset)
+        stepsField = findViewById(R.id.image_steps)
         generate = findViewById(R.id.image_generate)
         progress = findViewById(R.id.image_progress)
         preview = findViewById(R.id.image_preview)
@@ -86,8 +89,12 @@ class ImageActivity : ComponentActivity() {
                 val chosen = ImagePreset.values()[position]
                 if (chosen != preset) {
                     preset = chosen
+                    steps = chosen.steps
+                    stepsField.setText(steps.toString())
                     getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                        .putString(presetKey(modelName()), chosen.name).apply()
+                        .putString(presetKey(modelName()), chosen.name)
+                        .putInt(stepsKey(modelName()), steps)
+                        .apply()
                 }
             }
 
@@ -104,7 +111,7 @@ class ImageActivity : ComponentActivity() {
                     // Still loaded from an earlier visit to this tool: no need to load it again.
                     LocalImage.isLoaded() -> {
                         modelReady = true
-                        showPreset(presetFor(modelName()))
+                        showSettings(modelName())
                         showStatusText(getString(R.string.image_model_ready, modelName()))
                     }
                     file.exists() -> initModel(file)
@@ -122,9 +129,12 @@ class ImageActivity : ComponentActivity() {
         val visibility = if (LocalImage.libraryLoaded && !useGemini()) View.VISIBLE else View.GONE
         loadModel.visibility = visibility
         presetSpinner.visibility = visibility
+        stepsField.visibility = visibility
     }
 
     private fun presetKey(name: String): String = "preset:$name"
+
+    private fun stepsKey(name: String): String = "steps:$name"
 
     /** The settings remembered for this model. A file named like SDXS starts on the fast settings. */
     private fun presetFor(name: String): ImagePreset {
@@ -133,10 +143,24 @@ class ImageActivity : ComponentActivity() {
             ?: if (name.contains("sdxs", ignoreCase = true)) ImagePreset.SDXS else ImagePreset.SD
     }
 
-    /** Sets the settings for the loaded model and shows them in the dropdown. Any thread. */
-    private fun showPreset(chosen: ImagePreset) {
+    /** Sets the settings for the loaded model and shows them. Any thread. */
+    private fun showSettings(name: String) {
+        val chosen = presetFor(name)
+        val savedSteps = getSharedPreferences(PREFS, MODE_PRIVATE).getInt(stepsKey(name), chosen.steps)
         preset = chosen
-        main.post { presetSpinner.setSelection(chosen.ordinal) }
+        steps = savedSteps
+        main.post {
+            presetSpinner.setSelection(chosen.ordinal)
+            stepsField.setText(savedSteps.toString())
+        }
+    }
+
+    /** Reads the steps box, keeps it within 1 to MAX_STEPS and remembers it for the loaded model. Main thread. */
+    private fun readSteps() {
+        val value = (stepsField.text.toString().toIntOrNull() ?: preset.steps).coerceIn(1, MAX_STEPS)
+        steps = value
+        stepsField.setText(value.toString())
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putInt(stepsKey(modelName()), value).apply()
     }
 
     private fun modelFile(): File = File(filesDir, "image/model.gguf")
@@ -157,6 +181,7 @@ class ImageActivity : ComponentActivity() {
                 Toast.makeText(this, R.string.image_model_not_ready, Toast.LENGTH_SHORT).show()
                 return
             }
+            readSteps()
             generateOnPhone(text)
         }
     }
@@ -214,8 +239,7 @@ class ImageActivity : ComponentActivity() {
     /** Makes the picture with the loaded model. Runs on the worker thread. [note] is shown under the picture. */
     private fun makeOnPhone(text: String, note: String) {
         try {
-            val chosen = preset
-            val rgb = LocalImage.generate(text, "", SIZE, SIZE, chosen.steps, chosen.guidance, Random.nextLong(1L shl 31))
+            val rgb = LocalImage.generate(text, "", SIZE, SIZE, steps, preset.guidance, Random.nextLong(1L shl 31))
             if (rgb == null || rgb.size != SIZE * SIZE * 3) {
                 show(getString(R.string.image_local_failed), "")
             } else {
@@ -285,7 +309,7 @@ class ImageActivity : ComponentActivity() {
         val ok = LocalImage.load(file.absolutePath, threads) == 0
         modelReady = ok
         if (ok) {
-            showPreset(presetFor(modelName()))
+            showSettings(modelName())
             showStatusText(getString(R.string.image_model_ready, modelName()))
         } else {
             showStatus(R.string.image_model_failed)
@@ -333,6 +357,8 @@ class ImageActivity : ComponentActivity() {
         private const val KEY_MODEL_NAME = "model_name"
         // Pictures are made at this size.
         private const val SIZE = 512
+        // The most steps the steps box accepts.
+        private const val MAX_STEPS = 50
     }
 }
 
