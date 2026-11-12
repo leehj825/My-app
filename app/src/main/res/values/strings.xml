@@ -124,4 +124,17 @@
         <item>Last 10 messages</item>
         <item>Whole chat</item>
     </string-array>
+    <string name="chat_action_open">Open</string>
+    <string name="chat_action_delete">Delete</string>
+    <string name="chat_delete_confirm">Delete this chat? This cannot be undone.</string>
+    <string name="chat_deleted">Chat deleted</string>
+    <string name="chat_gemini_memory_label">Earlier messages sent to Gemini with each new message:</string>
+    <string-array name="chat_gemini_memory_options">
+        <item>Only this message</item>
+        <item>Last 2 messages</item>
+        <item>Last 4 messages</item>
+        <item>Last 10 messages</item>
+        <item>Last 20 messages</item>
+        <item>Whole chat</item>
+    </string-array>
 </resources>

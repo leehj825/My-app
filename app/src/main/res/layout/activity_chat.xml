@@ -72,6 +72,20 @@
         android:text="@string/chat_gemini_label"
         android:visibility="gone" />
 
+    <TextView
+        android:id="@+id/chat_gemini_memory_label"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/chat_gemini_memory_label"
+        android:textSize="13sp"
+        android:visibility="gone" />
+
+    <Spinner
+        android:id="@+id/chat_gemini_memory"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:visibility="gone" />
+
     <CheckBox
         android:id="@+id/chat_web_search"
         android:layout_width="wrap_content"

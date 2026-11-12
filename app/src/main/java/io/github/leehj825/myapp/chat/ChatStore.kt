@@ -13,12 +13,14 @@ data class ChatSummary(val id: String, val title: String, val modified: Long)
 
 /**
  * Saves chats on this phone, one file per chat, and remembers which chat is open.
- * It also keeps the "memory" setting: how many earlier messages are sent with each new message.
+ * It also keeps the memory settings: how many earlier messages go with each new message, for the on-phone
+ * model and for Gemini separately. -1 means the whole chat.
  */
 object ChatStore {
     private const val PREFS = "chat"
     private const val KEY_CURRENT = "current"
     private const val KEY_MEMORY = "memory"
+    private const val KEY_GEMINI_MEMORY = "gemini_memory"
     private const val DEFAULT_MEMORY = 4
 
     /** The open chat's id. Starts a new chat if there is none yet. */
@@ -36,11 +38,18 @@ object ChatStore {
         prefs(context).edit().putString(KEY_CURRENT, id).apply()
     }
 
-    /** How many earlier messages go with each new message. -1 means the whole chat. */
+    /** How many earlier messages go to the on-phone model with each new message. */
     fun memoryTurns(context: Context): Int = prefs(context).getInt(KEY_MEMORY, DEFAULT_MEMORY)
 
     fun setMemoryTurns(context: Context, turns: Int) {
         prefs(context).edit().putInt(KEY_MEMORY, turns).apply()
+    }
+
+    /** How many earlier messages go to Gemini with each new message. */
+    fun geminiMemoryTurns(context: Context): Int = prefs(context).getInt(KEY_GEMINI_MEMORY, DEFAULT_MEMORY)
+
+    fun setGeminiMemoryTurns(context: Context, turns: Int) {
+        prefs(context).edit().putInt(KEY_GEMINI_MEMORY, turns).apply()
     }
 
     fun load(context: Context, id: String): MutableList<ChatMessage> {
@@ -61,6 +70,14 @@ object ChatStore {
         val array = JSONArray()
         for (m in messages) array.put(JSONObject().put("role", m.role).put("text", m.text))
         file(context, id).writeText(array.toString())
+    }
+
+    /** Deletes a saved chat. If it was the open one, the open chat is cleared so a new one is started. */
+    fun delete(context: Context, id: String) {
+        file(context, id).delete()
+        if (prefs(context).getString(KEY_CURRENT, null) == id) {
+            prefs(context).edit().remove(KEY_CURRENT).apply()
+        }
     }
 
     /** All saved chats, newest first. */

@@ -46,6 +46,8 @@ class ChatActivity : ComponentActivity() {
     private lateinit var openChatButton: Button
     private lateinit var memorySpinner: Spinner
     private lateinit var geminiCheck: CheckBox
+    private lateinit var geminiMemoryLabel: TextView
+    private lateinit var geminiMemory: Spinner
     private lateinit var webSearch: CheckBox
     private lateinit var input: EditText
     private lateinit var sendButton: Button
@@ -108,6 +110,8 @@ class ChatActivity : ComponentActivity() {
         openChatButton = findViewById(R.id.chat_open)
         memorySpinner = findViewById(R.id.chat_memory)
         geminiCheck = findViewById(R.id.chat_gemini)
+        geminiMemoryLabel = findViewById(R.id.chat_gemini_memory_label)
+        geminiMemory = findViewById(R.id.chat_gemini_memory)
         webSearch = findViewById(R.id.chat_web_search)
         input = findViewById(R.id.chat_input)
         sendButton = findViewById(R.id.chat_send)
@@ -119,7 +123,21 @@ class ChatActivity : ComponentActivity() {
         geminiCheck.visibility = if (GeminiClient.available) View.VISIBLE else View.GONE
         geminiCheck.setOnCheckedChangeListener { _, checked ->
             if (checked) showStatusText(getString(R.string.chat_gemini_selected))
+            updateGeminiMemoryVisibility()
         }
+        geminiMemory.adapter = ArrayAdapter(
+            this, android.R.layout.simple_spinner_dropdown_item,
+            resources.getStringArray(R.array.chat_gemini_memory_options)
+        )
+        geminiMemory.setSelection(GEMINI_MEMORY_VALUES.indexOf(ChatStore.geminiMemoryTurns(this)).coerceAtLeast(0))
+        geminiMemory.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                ChatStore.setGeminiMemoryTurns(this@ChatActivity, GEMINI_MEMORY_VALUES[position])
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+        updateGeminiMemoryVisibility()
 
         chatId = ChatStore.currentId(this)
         messages = ChatStore.load(this, chatId)
@@ -185,7 +203,7 @@ class ChatActivity : ComponentActivity() {
         renderLog()
     }
 
-    /** Lists the saved chats and opens the one picked. */
+    /** Lists the saved chats. Picking one offers to open it or delete it. */
     private fun chooseChat() {
         if (generating) {
             Toast.makeText(this, R.string.chat_busy, Toast.LENGTH_SHORT).show()
@@ -199,16 +217,57 @@ class ChatActivity : ComponentActivity() {
         val labels = chats.map { "${formatNoteTime(it.modified)}  ${it.title}" }.toTypedArray()
         AlertDialog.Builder(this)
             .setTitle(R.string.chat_open)
-            .setItems(labels) { _, which ->
-                chatId = chats[which].id
-                ChatStore.setCurrent(this, chatId)
-                messages = ChatStore.load(this, chatId)
-                reply = null
-                progress.text = ""
-                renderLog()
-            }
+            .setItems(labels) { _, which -> chatActions(chats[which]) }
             .setNegativeButton(R.string.note_close, null)
             .show()
+    }
+
+    private fun chatActions(chat: ChatSummary) {
+        AlertDialog.Builder(this)
+            .setTitle(chat.title)
+            .setItems(arrayOf(getString(R.string.chat_action_open), getString(R.string.chat_action_delete))) { _, which ->
+                if (which == 0) openChat(chat.id) else confirmDelete(chat)
+            }
+            .setNegativeButton(R.string.chat_key_cancel, null)
+            .show()
+    }
+
+    private fun openChat(id: String) {
+        chatId = id
+        ChatStore.setCurrent(this, chatId)
+        messages = ChatStore.load(this, chatId)
+        reply = null
+        progress.text = ""
+        renderLog()
+    }
+
+    private fun confirmDelete(chat: ChatSummary) {
+        AlertDialog.Builder(this)
+            .setMessage(R.string.chat_delete_confirm)
+            .setPositiveButton(R.string.chat_action_delete) { _, _ -> deleteChat(chat.id) }
+            .setNegativeButton(R.string.chat_key_cancel, null)
+            .show()
+    }
+
+    /** Deletes a saved chat. If it was the open one, a new blank chat is started. */
+    private fun deleteChat(id: String) {
+        if (generating) {
+            Toast.makeText(this, R.string.chat_busy, Toast.LENGTH_SHORT).show()
+            return
+        }
+        ChatStore.delete(this, id)
+        if (id == chatId) {
+            startNewChat()
+        }
+        Toast.makeText(this, R.string.chat_deleted, Toast.LENGTH_SHORT).show()
+    }
+
+    /** The Gemini memory setting is shown only when Gemini is ticked. */
+    private fun updateGeminiMemoryVisibility() {
+        val show = geminiCheck.visibility == View.VISIBLE && geminiCheck.isChecked
+        val visibility = if (show) View.VISIBLE else View.GONE
+        geminiMemoryLabel.visibility = visibility
+        geminiMemory.visibility = visibility
     }
 
     /** Shows the messages of the open chat. */
@@ -278,15 +337,17 @@ class ChatActivity : ComponentActivity() {
         }
     }
 
-    /** The earlier messages to send with a new one, as the memory setting chooses (newest kept if too long). */
-    private fun memoryFor(all: List<ChatMessage>): List<ChatMessage> {
-        val turns = ChatStore.memoryTurns(this)
+    /**
+     * The earlier messages to send with a new one: the last [turns] (or all if -1).
+     * If [maxChars] is set, the newest part is kept within that size.
+     */
+    private fun memoryFor(all: List<ChatMessage>, turns: Int, maxChars: Int = Int.MAX_VALUE): List<ChatMessage> {
         val picked = if (turns < 0) all else all.takeLast(turns)
         var size = 0
         val kept = ArrayList<ChatMessage>()
         for (m in picked.asReversed()) {
             size += m.text.length
-            if (size > MAX_HISTORY_CHARS) break
+            if (size > maxChars) break
             kept.add(0, m)
         }
         return kept
@@ -315,7 +376,7 @@ class ChatActivity : ComponentActivity() {
             Toast.makeText(this, R.string.chat_not_ready, Toast.LENGTH_SHORT).show()
             return
         }
-        val history = memoryFor(messages)
+        val history = memoryFor(messages, ChatStore.memoryTurns(this), MAX_HISTORY_CHARS)
         addUserMessage(text)
         reply = addLine(getString(R.string.chat_assistant), "")
         val apiKey = if (webSearch.isChecked) WebSearch.apiKey(this) else null
@@ -374,7 +435,7 @@ class ChatActivity : ComponentActivity() {
 
     /** Sends the chat (as the memory setting allows) to Gemini in the cloud, and shows the reply. */
     private fun sendToGemini(text: String) {
-        val conversation = memoryFor(messages) + ChatMessage("user", text)
+        val conversation = memoryFor(messages, ChatStore.geminiMemoryTurns(this)) + ChatMessage("user", text)
         addUserMessage(text)
         reply = addLine(getString(R.string.chat_assistant), "")
         startedAt = System.currentTimeMillis()
@@ -511,6 +572,8 @@ class ChatActivity : ComponentActivity() {
         private const val MAX_REPLY_TOKENS = 512
         // The memory choices, in the order of the dropdown. -1 is the whole chat.
         private val MEMORY_VALUES = listOf(0, 4, 10, -1)
+        // The Gemini memory choices, in the order of their dropdown.
+        private val GEMINI_MEMORY_VALUES = listOf(0, 2, 4, 10, 20, -1)
         // Earlier messages sent to the on-phone model are cut to this many characters, to fit its context.
         private const val MAX_HISTORY_CHARS = 3000
         private const val SYSTEM_PROMPT =
