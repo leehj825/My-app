@@ -184,6 +184,13 @@ class ImageActivity : ComponentActivity() {
                         progress.text = result.text
                     }
                 }
+            } catch (e: GoogleImage.QuotaExceeded) {
+                // Google has no picture quota left: make the picture on the phone if a model is loaded.
+                if (modelReady) {
+                    makeOnPhone(text, getString(R.string.image_quota_fallback))
+                } else {
+                    show(getString(R.string.image_quota), "")
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Image failed", e)
                 show(getString(R.string.image_failed, e.message ?: e.javaClass.simpleName), "")
@@ -197,30 +204,37 @@ class ImageActivity : ComponentActivity() {
         setBusy()
         worker.execute {
             try {
-                val chosen = preset
-                val rgb = LocalImage.generate(text, "", SIZE, SIZE, chosen.steps, chosen.guidance, Random.nextLong(1L shl 31))
-                if (rgb == null || rgb.size != SIZE * SIZE * 3) {
-                    show(getString(R.string.image_local_failed), "")
-                } else {
-                    val bitmap = rgbToBitmap(rgb, SIZE, SIZE)
-                    val png = ByteArrayOutputStream().use { out ->
-                        bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
-                        out.toByteArray()
-                    }
-                    saveToPictures(png)
-                    val model = modelName()
-                    main.post {
-                        preview.setImageBitmap(bitmap)
-                        status.text = getString(R.string.image_saved, model)
-                        progress.text = ""
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "On-phone image failed", e)
-                show(getString(R.string.image_local_failed), "")
+                makeOnPhone(text, "")
             } finally {
                 main.post { generate.isEnabled = true }
             }
+        }
+    }
+
+    /** Makes the picture with the loaded model. Runs on the worker thread. [note] is shown under the picture. */
+    private fun makeOnPhone(text: String, note: String) {
+        try {
+            val chosen = preset
+            val rgb = LocalImage.generate(text, "", SIZE, SIZE, chosen.steps, chosen.guidance, Random.nextLong(1L shl 31))
+            if (rgb == null || rgb.size != SIZE * SIZE * 3) {
+                show(getString(R.string.image_local_failed), "")
+            } else {
+                val bitmap = rgbToBitmap(rgb, SIZE, SIZE)
+                val png = ByteArrayOutputStream().use { out ->
+                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+                    out.toByteArray()
+                }
+                saveToPictures(png)
+                val model = modelName()
+                main.post {
+                    preview.setImageBitmap(bitmap)
+                    status.text = getString(R.string.image_saved, model)
+                    progress.text = note
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "On-phone image failed", e)
+            show(getString(R.string.image_local_failed), "")
         }
     }
 

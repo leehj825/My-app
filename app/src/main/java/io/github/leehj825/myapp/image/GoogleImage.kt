@@ -20,6 +20,9 @@ object GoogleImage {
 
     private class ModelNotFound : RuntimeException()
 
+    /** Google has no picture quota left for this key (HTTP 429). The app can make the picture on the phone instead. */
+    class QuotaExceeded : RuntimeException("Google's picture quota is used up")
+
     /** Creates a picture from [prompt]. Blocking: call from a worker thread. */
     fun generate(prompt: String): GeneratedImage {
         var lastError: IllegalStateException? = null
@@ -52,6 +55,7 @@ object GoogleImage {
 
             val code = connection.responseCode
             if (code == HttpURLConnection.HTTP_NOT_FOUND) throw ModelNotFound()
+            if (code == 429) throw QuotaExceeded()
             if (code != HttpURLConnection.HTTP_OK) throw IllegalStateException("Google failed with HTTP $code")
 
             val json = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })

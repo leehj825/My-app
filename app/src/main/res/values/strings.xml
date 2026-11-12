@@ -156,5 +156,7 @@
     <string name="image_model_not_ready">Load a model first, or tick Gemini</string>
     <string name="image_preset_sd">Stable Diffusion 1.5 / SDXL (slower, 20 steps)</string>
     <string name="image_preset_sdxs">SDXS 512 (fast, 1 step)</string>
+    <string name="image_quota">Google's picture quota is used up on this key, and no model is loaded here. Load a model to make pictures on the phone, or turn on billing for the key.</string>
+    <string name="image_quota_fallback">Google's picture quota is used up, so this picture was made on the phone.</string>
     <string name="image_local_failed">The picture could not be made on this phone. Try different words or a smaller picture.</string>
 </resources>
