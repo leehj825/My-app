@@ -137,8 +137,8 @@
         <item>Last 20 messages</item>
         <item>Whole chat</item>
     </string-array>
-    <string name="tool_image">Image (Google AI)</string>
-    <string name="tool_image_desc">Make a picture from a description. The description is sent to Google. Saved to Pictures/MyApp.</string>
+    <string name="tool_image">Image (on-device or Google AI)</string>
+    <string name="tool_image_desc">Make a picture from a description, with your own image model on this phone or with Google. Saved to Pictures/MyApp.</string>
     <string name="image_hint">Describe the picture</string>
     <string name="image_generate">Generate</string>
     <string name="image_working">Creating the picture…</string>
@@ -146,4 +146,13 @@
     <string name="image_saved">Saved to Pictures/MyApp (%1$s)</string>
     <string name="image_none">No picture was returned. The request may have been blocked, so try different words.</string>
     <string name="image_failed">The picture could not be created: %1$s</string>
+    <string name="image_gemini_label">Use Gemini in the cloud (your description goes to Google)</string>
+    <string name="image_load_model">Load model</string>
+    <string name="image_copying">Copying the model file…</string>
+    <string name="image_loading">Loading the model…</string>
+    <string name="image_model_none">Load a single-file GGUF image model (Stable Diffusion style) to make pictures on this phone.</string>
+    <string name="image_model_ready">Model loaded: %1$s. Describe a picture.</string>
+    <string name="image_model_failed">The model could not be loaded on this phone. It must be a GGUF image model.</string>
+    <string name="image_model_not_ready">Load a model first, or tick Gemini</string>
+    <string name="image_local_failed">The picture could not be made on this phone. Try different words or a smaller picture.</string>
 </resources>

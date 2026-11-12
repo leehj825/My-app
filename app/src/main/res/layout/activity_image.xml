@@ -16,6 +16,19 @@
             android:hint="@string/image_hint"
             android:inputType="textMultiLine|textCapSentences" />
 
+        <CheckBox
+            android:id="@+id/image_gemini"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/image_gemini_label"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/image_load_model"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/image_load_model" />
+
         <Button
             android:id="@+id/image_generate"
             android:layout_width="match_parent"

@@ -43,3 +43,66 @@ target_link_libraries(myapp_llm
         llama-common
         android
         log)
+
+# Image tool: stable-diffusion.cpp (GGUF image models). It has its own copy of ggml, which would clash with
+# llama.cpp's ggml targets, so it is built as a separate CMake project (ExternalProject) and linked as
+# prebuilt static libraries. Its ggml libraries get "sd_" names so they do not clash with llama's.
+include(ExternalProject)
+set(SD_TAG master-1086-465adf3)
+set(SD_SRC ${CMAKE_BINARY_DIR}/stable-diffusion-src)
+set(SD_BIN ${CMAKE_BINARY_DIR}/stable-diffusion-build)
+set(SD_PREFIX ${CMAKE_BINARY_DIR}/stable-diffusion-install)
+set(SD_LIBS ${SD_PREFIX}/lib)
+
+ExternalProject_Add(stable_diffusion_ext
+        GIT_REPOSITORY https://github.com/leejet/stable-diffusion.cpp
+        GIT_TAG ${SD_TAG}
+        GIT_SHALLOW TRUE
+        GIT_SUBMODULES_RECURSE TRUE
+        SOURCE_DIR ${SD_SRC}
+        BINARY_DIR ${SD_BIN}
+        INSTALL_DIR ${SD_PREFIX}
+        CMAKE_ARGS
+            -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
+            -DANDROID_ABI=${ANDROID_ABI}
+            -DANDROID_PLATFORM=${ANDROID_PLATFORM}
+            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_C_FLAGS=-march=armv8.2-a+dotprod+fp16
+            -DCMAKE_CXX_FLAGS=-march=armv8.2-a+dotprod+fp16
+            -DCMAKE_INSTALL_PREFIX=${SD_PREFIX}
+            -DSD_BUILD_EXAMPLES=OFF
+            -DSD_BUILD_SHARED_LIBS=OFF
+            -DGGML_OPENMP=OFF
+        BUILD_BYPRODUCTS
+            ${SD_LIBS}/libstable-diffusion.a
+            ${SD_LIBS}/libggml.a
+            ${SD_LIBS}/libggml-base.a
+            ${SD_LIBS}/libggml-cpu.a)
+
+add_library(sd_stable_diffusion STATIC IMPORTED GLOBAL)
+set_target_properties(sd_stable_diffusion PROPERTIES IMPORTED_LOCATION ${SD_LIBS}/libstable-diffusion.a)
+add_library(sd_ggml STATIC IMPORTED GLOBAL)
+set_target_properties(sd_ggml PROPERTIES IMPORTED_LOCATION ${SD_LIBS}/libggml.a)
+add_library(sd_ggml_base STATIC IMPORTED GLOBAL)
+set_target_properties(sd_ggml_base PROPERTIES IMPORTED_LOCATION ${SD_LIBS}/libggml-base.a)
+add_library(sd_ggml_cpu STATIC IMPORTED GLOBAL)
+set_target_properties(sd_ggml_cpu PROPERTIES IMPORTED_LOCATION ${SD_LIBS}/libggml-cpu.a)
+foreach(t sd_stable_diffusion sd_ggml sd_ggml_base sd_ggml_cpu)
+    add_dependencies(${t} stable_diffusion_ext)
+endforeach()
+
+add_library(myapp_sd SHARED sd_jni.cpp)
+
+target_include_directories(myapp_sd PRIVATE ${SD_SRC}/include)
+
+target_link_libraries(myapp_sd
+        sd_stable_diffusion
+        sd_ggml_cpu
+        sd_ggml_base
+        sd_ggml
+        android
+        log)
+
+# Each library keeps the copies of ggml inside it to itself, so the two copies never see each other's symbols.
+target_link_options(myapp_llm PRIVATE "-Wl,--exclude-libs,ALL")
+target_link_options(myapp_sd PRIVATE "-Wl,--exclude-libs,ALL")

@@ -6,6 +6,7 @@ import io.github.leehj825.myapp.chat.ChatActivity
 import io.github.leehj825.myapp.chat.GeminiClient
 import io.github.leehj825.myapp.chat.LlmEngine
 import io.github.leehj825.myapp.image.ImageActivity
+import io.github.leehj825.myapp.image.LocalImage
 import io.github.leehj825.myapp.journal.JournalActivity
 import io.github.leehj825.myapp.notes.NotesActivity
 import io.github.leehj825.myapp.recorder.ScreenRecorderActivity
@@ -61,7 +62,8 @@ object Tools {
             name = R.string.tool_image,
             description = R.string.tool_image_desc,
             activity = ImageActivity::class.java,
-            available = { GeminiClient.available },
+            // Shown when the on-phone image library loads, or when this build has a Gemini key.
+            available = { LocalImage.libraryLoaded || GeminiClient.available },
         ),
     )
 
