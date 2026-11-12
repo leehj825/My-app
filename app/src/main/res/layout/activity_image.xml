@@ -29,6 +29,12 @@
             android:layout_height="wrap_content"
             android:text="@string/image_load_model" />
 
+        <Spinner
+            android:id="@+id/image_preset"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:visibility="gone" />
+
         <Button
             android:id="@+id/image_generate"
             android:layout_width="match_parent"

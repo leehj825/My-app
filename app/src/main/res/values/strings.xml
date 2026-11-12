@@ -154,5 +154,7 @@
     <string name="image_model_ready">Model loaded: %1$s. Describe a picture.</string>
     <string name="image_model_failed">The model could not be loaded on this phone. It must be a GGUF image model.</string>
     <string name="image_model_not_ready">Load a model first, or tick Gemini</string>
+    <string name="image_preset_sd">Stable Diffusion 1.5 / SDXL (slower, 20 steps)</string>
+    <string name="image_preset_sdxs">SDXS 512 (fast, 1 step)</string>
     <string name="image_local_failed">The picture could not be made on this phone. Try different words or a smaller picture.</string>
 </resources>

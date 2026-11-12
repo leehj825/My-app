@@ -14,7 +14,10 @@ import android.view.View
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.ImageView
+import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -39,6 +42,7 @@ class ImageActivity : ComponentActivity() {
     private lateinit var prompt: EditText
     private lateinit var geminiCheck: CheckBox
     private lateinit var loadModel: Button
+    private lateinit var presetSpinner: Spinner
     private lateinit var generate: Button
     private lateinit var progress: TextView
     private lateinit var preview: ImageView
@@ -48,6 +52,8 @@ class ImageActivity : ComponentActivity() {
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
     @Volatile private var modelReady = false
+    // The settings for the loaded model: the steps and guidance it is run with.
+    @Volatile private var preset = ImagePreset.SD
 
     private val pickModel = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) loadFrom(uri)
@@ -59,6 +65,7 @@ class ImageActivity : ComponentActivity() {
         prompt = findViewById(R.id.image_prompt)
         geminiCheck = findViewById(R.id.image_gemini)
         loadModel = findViewById(R.id.image_load_model)
+        presetSpinner = findViewById(R.id.image_preset)
         generate = findViewById(R.id.image_generate)
         progress = findViewById(R.id.image_progress)
         preview = findViewById(R.id.image_preview)
@@ -70,6 +77,23 @@ class ImageActivity : ComponentActivity() {
         geminiCheck.setOnCheckedChangeListener { _, _ -> updateModelControls() }
         updateModelControls()
 
+        presetSpinner.adapter = ArrayAdapter(
+            this, android.R.layout.simple_spinner_dropdown_item,
+            ImagePreset.values().map { getString(it.labelRes) }
+        )
+        presetSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val chosen = ImagePreset.values()[position]
+                if (chosen != preset) {
+                    preset = chosen
+                    getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                        .putString(presetKey(modelName()), chosen.name).apply()
+                }
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+
         loadModel.setOnClickListener { pickModel.launch(arrayOf("*/*")) }
         generate.setOnClickListener { onGenerate() }
 
@@ -80,6 +104,7 @@ class ImageActivity : ComponentActivity() {
                     // Still loaded from an earlier visit to this tool: no need to load it again.
                     LocalImage.isLoaded() -> {
                         modelReady = true
+                        showPreset(presetFor(modelName()))
                         showStatusText(getString(R.string.image_model_ready, modelName()))
                     }
                     file.exists() -> initModel(file)
@@ -92,9 +117,26 @@ class ImageActivity : ComponentActivity() {
     /** True when pictures are made in the cloud. Otherwise they are made on the phone. */
     private fun useGemini(): Boolean = GeminiClient.available && (!LocalImage.libraryLoaded || geminiCheck.isChecked)
 
-    /** The model file is shown only when pictures are made on the phone. */
+    /** The model file and its settings are shown only when pictures are made on the phone. */
     private fun updateModelControls() {
-        loadModel.visibility = if (LocalImage.libraryLoaded && !useGemini()) View.VISIBLE else View.GONE
+        val visibility = if (LocalImage.libraryLoaded && !useGemini()) View.VISIBLE else View.GONE
+        loadModel.visibility = visibility
+        presetSpinner.visibility = visibility
+    }
+
+    private fun presetKey(name: String): String = "preset:$name"
+
+    /** The settings remembered for this model. A file named like SDXS starts on the fast settings. */
+    private fun presetFor(name: String): ImagePreset {
+        val saved = getSharedPreferences(PREFS, MODE_PRIVATE).getString(presetKey(name), null)
+        return ImagePreset.values().firstOrNull { it.name == saved }
+            ?: if (name.contains("sdxs", ignoreCase = true)) ImagePreset.SDXS else ImagePreset.SD
+    }
+
+    /** Sets the settings for the loaded model and shows them in the dropdown. Any thread. */
+    private fun showPreset(chosen: ImagePreset) {
+        preset = chosen
+        main.post { presetSpinner.setSelection(chosen.ordinal) }
     }
 
     private fun modelFile(): File = File(filesDir, "image/model.gguf")
@@ -155,7 +197,8 @@ class ImageActivity : ComponentActivity() {
         setBusy()
         worker.execute {
             try {
-                val rgb = LocalImage.generate(text, "", SIZE, SIZE, STEPS, CFG_SCALE, Random.nextLong(1L shl 31))
+                val chosen = preset
+                val rgb = LocalImage.generate(text, "", SIZE, SIZE, chosen.steps, chosen.guidance, Random.nextLong(1L shl 31))
                 if (rgb == null || rgb.size != SIZE * SIZE * 3) {
                     show(getString(R.string.image_local_failed), "")
                 } else {
@@ -228,6 +271,7 @@ class ImageActivity : ComponentActivity() {
         val ok = LocalImage.load(file.absolutePath, threads) == 0
         modelReady = ok
         if (ok) {
+            showPreset(presetFor(modelName()))
             showStatusText(getString(R.string.image_model_ready, modelName()))
         } else {
             showStatus(R.string.image_model_failed)
@@ -273,9 +317,16 @@ class ImageActivity : ComponentActivity() {
         private const val TAG = "ImageActivity"
         private const val PREFS = "image"
         private const val KEY_MODEL_NAME = "model_name"
-        // Picture size and sampling for Stable Diffusion 1.x style models. Pictures are made at this size.
+        // Pictures are made at this size.
         private const val SIZE = 512
-        private const val STEPS = 20
-        private const val CFG_SCALE = 7.0f
     }
+}
+
+/** The settings a picture is made with, for the kind of model loaded. Order is the dropdown's order. */
+enum class ImagePreset(val labelRes: Int, val steps: Int, val guidance: Float) {
+    /** Stable Diffusion 1.5 and SDXL style models: slower, with guidance. */
+    SD(R.string.image_preset_sd, 20, 7.0f),
+
+    /** SDXS, a distilled model that makes a picture in one step with little or no guidance. */
+    SDXS(R.string.image_preset_sdxs, 1, 1.0f),
 }
