@@ -16,6 +16,14 @@
             android:hint="@string/image_hint"
             android:inputType="textMultiLine|textCapSentences" />
 
+        <EditText
+            android:id="@+id/image_negative"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/image_negative_hint"
+            android:inputType="textMultiLine|textCapSentences"
+            android:visibility="gone" />
+
         <CheckBox
             android:id="@+id/image_gemini"
             android:layout_width="wrap_content"
@@ -35,6 +43,18 @@
             android:layout_height="wrap_content"
             android:visibility="gone" />
 
+        <Spinner
+            android:id="@+id/image_size"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:visibility="gone" />
+
+        <Spinner
+            android:id="@+id/image_sampler"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:visibility="gone" />
+
         <EditText
             android:id="@+id/image_steps"
             android:layout_width="match_parent"
@@ -48,6 +68,14 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:hint="@string/image_threads_hint"
+            android:inputType="number"
+            android:visibility="gone" />
+
+        <EditText
+            android:id="@+id/image_seed"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/image_seed_hint"
             android:inputType="number"
             android:visibility="gone" />
 

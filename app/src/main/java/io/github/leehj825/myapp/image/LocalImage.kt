@@ -33,6 +33,7 @@ object LocalImage {
         height: Int,
         steps: Int,
         cfg: Float,
+        sampler: Int,
         seed: Long,
     ): ByteArray?
 

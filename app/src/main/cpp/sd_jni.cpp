@@ -13,6 +13,16 @@
 
 static sd_ctx_t *g_sd = nullptr;
 
+// The sampler the app asks for (the order of its Sampler list).
+static enum sample_method_t sampler_for(jint code) {
+    switch (code) {
+        case 1: return EULER_SAMPLE_METHOD;
+        case 2: return LCM_SAMPLE_METHOD;
+        case 3: return DPMPP2M_SAMPLE_METHOD;
+        default: return EULER_A_SAMPLE_METHOD;
+    }
+}
+
 extern "C"
 JNIEXPORT jint JNICALL
 Java_io_github_leehj825_myapp_image_LocalImage_load(JNIEnv *env, jobject /*unused*/, jstring jmodel_path, jint threads) {
@@ -48,6 +58,7 @@ Java_io_github_leehj825_myapp_image_LocalImage_generate(
         jint height,
         jint steps,
         jfloat cfg,
+        jint sampler,
         jlong seed
 ) {
     if (!g_sd) {
@@ -66,7 +77,7 @@ Java_io_github_leehj825_myapp_image_LocalImage_generate(
     gen.seed = seed;
     gen.batch_count = 1;
     sd_sample_params_init(&gen.sample_params);
-    gen.sample_params.sample_method = EULER_A_SAMPLE_METHOD;
+    gen.sample_params.sample_method = sampler_for(sampler);
     gen.sample_params.sample_steps = steps;
     gen.sample_params.guidance.txt_cfg = cfg;
 

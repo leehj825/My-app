@@ -46,6 +46,10 @@ class ImageActivity : ComponentActivity() {
     private lateinit var presetSpinner: Spinner
     private lateinit var stepsField: EditText
     private lateinit var threadsField: EditText
+    private lateinit var negativeField: EditText
+    private lateinit var seedField: EditText
+    private lateinit var sizeSpinner: Spinner
+    private lateinit var samplerSpinner: Spinner
     private lateinit var generate: Button
     private lateinit var progress: TextView
     private lateinit var preview: ImageView
@@ -60,6 +64,12 @@ class ImageActivity : ComponentActivity() {
     @Volatile private var steps = ImagePreset.SD.steps
     // How many CPU threads the model uses. It is set when the model is loaded, so changing it reloads the model.
     @Volatile private var threads = DEFAULT_THREADS
+    // The picture size (a square, in pixels) and sampler for the loaded model.
+    @Volatile private var imageSize = ImagePreset.SD.size
+    @Volatile private var sampler = ImagePreset.SD.sampler
+    // From the negative prompt and seed boxes, read when Generate is tapped. No seed means a random one each time.
+    @Volatile private var negative = ""
+    @Volatile private var seedValue: Long? = null
 
     private val pickModel = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) loadFrom(uri)
@@ -74,6 +84,10 @@ class ImageActivity : ComponentActivity() {
         presetSpinner = findViewById(R.id.image_preset)
         stepsField = findViewById(R.id.image_steps)
         threadsField = findViewById(R.id.image_threads)
+        negativeField = findViewById(R.id.image_negative)
+        seedField = findViewById(R.id.image_seed)
+        sizeSpinner = findViewById(R.id.image_size)
+        samplerSpinner = findViewById(R.id.image_sampler)
         generate = findViewById(R.id.image_generate)
         progress = findViewById(R.id.image_progress)
         preview = findViewById(R.id.image_preview)
@@ -89,17 +103,51 @@ class ImageActivity : ComponentActivity() {
             this, android.R.layout.simple_spinner_dropdown_item,
             ImagePreset.values().map { getString(it.labelRes) }
         )
+        sizeSpinner.adapter = ArrayAdapter(
+            this, android.R.layout.simple_spinner_dropdown_item,
+            SIZES.map { "$it x $it" }
+        )
+        samplerSpinner.adapter = ArrayAdapter(
+            this, android.R.layout.simple_spinner_dropdown_item,
+            Sampler.values().map { getString(it.labelRes) }
+        )
+        negative = getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_NEGATIVE, "") ?: ""
+        negativeField.setText(negative)
+
+        // Choosing a model type sets its steps, size and sampler, which can then be changed one by one.
         presetSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 val chosen = ImagePreset.values()[position]
                 if (chosen != preset) {
                     preset = chosen
                     steps = chosen.steps
+                    imageSize = chosen.size
+                    sampler = chosen.sampler
                     stepsField.setText(steps.toString())
-                    getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                        .putString(presetKey(modelName()), chosen.name)
-                        .putInt(stepsKey(modelName()), steps)
-                        .apply()
+                    sizeSpinner.setSelection(SIZES.indexOf(imageSize).coerceAtLeast(0))
+                    samplerSpinner.setSelection(sampler.ordinal)
+                    saveSettings()
+                }
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+        sizeSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                if (SIZES[position] != imageSize) {
+                    imageSize = SIZES[position]
+                    saveSettings()
+                }
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+        samplerSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val chosen = Sampler.values()[position]
+                if (chosen != sampler) {
+                    sampler = chosen
+                    saveSettings()
                 }
             }
 
@@ -139,29 +187,70 @@ class ImageActivity : ComponentActivity() {
         presetSpinner.visibility = visibility
         stepsField.visibility = visibility
         threadsField.visibility = visibility
+        negativeField.visibility = visibility
+        seedField.visibility = visibility
+        sizeSpinner.visibility = visibility
+        samplerSpinner.visibility = visibility
     }
 
     private fun presetKey(name: String): String = "preset:$name"
 
     private fun stepsKey(name: String): String = "steps:$name"
 
-    /** The settings remembered for this model. A file named like SDXS starts on the fast settings. */
+    private fun sizeKey(name: String): String = "size:$name"
+
+    private fun samplerKey(name: String): String = "sampler:$name"
+
+    /** Remembers the model type, steps, size and sampler for the loaded model. */
+    private fun saveSettings() {
+        val name = modelName()
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+            .putString(presetKey(name), preset.name)
+            .putInt(stepsKey(name), steps)
+            .putInt(sizeKey(name), imageSize)
+            .putString(samplerKey(name), sampler.name)
+            .apply()
+    }
+
+    /** The settings remembered for this model. A new file starts on the type its name suggests. */
     private fun presetFor(name: String): ImagePreset {
         val saved = getSharedPreferences(PREFS, MODE_PRIVATE).getString(presetKey(name), null)
-        return ImagePreset.values().firstOrNull { it.name == saved }
-            ?: if (name.contains("sdxs", ignoreCase = true)) ImagePreset.SDXS else ImagePreset.SD
+        ImagePreset.values().firstOrNull { it.name == saved }?.let { return it }
+        val lower = name.lowercase(Locale.ROOT)
+        return when {
+            "sdxs" in lower -> ImagePreset.SDXS
+            "sdxl" in lower && listOf("lightning", "hyper", "dmd", "turbo", "lcm").any { it in lower } ->
+                ImagePreset.SDXL_FAST
+            "sdxl" in lower -> ImagePreset.SDXL
+            else -> ImagePreset.SD
+        }
     }
 
     /** Sets the settings for the loaded model and shows them. Any thread. */
     private fun showSettings(name: String) {
         val chosen = presetFor(name)
-        val savedSteps = getSharedPreferences(PREFS, MODE_PRIVATE).getInt(stepsKey(name), chosen.steps)
+        val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
+        val savedSteps = prefs.getInt(stepsKey(name), chosen.steps)
+        val savedSize = prefs.getInt(sizeKey(name), chosen.size).takeIf { it in SIZES } ?: chosen.size
+        val savedSampler = Sampler.values().firstOrNull { it.name == prefs.getString(samplerKey(name), null) }
+            ?: chosen.sampler
         preset = chosen
         steps = savedSteps
+        imageSize = savedSize
+        sampler = savedSampler
         main.post {
             presetSpinner.setSelection(chosen.ordinal)
             stepsField.setText(savedSteps.toString())
+            sizeSpinner.setSelection(SIZES.indexOf(savedSize))
+            samplerSpinner.setSelection(savedSampler.ordinal)
         }
+    }
+
+    /** Reads the negative prompt and seed boxes and remembers the negative prompt. Main thread. */
+    private fun readOptions() {
+        negative = negativeField.text.toString().trim()
+        seedValue = seedField.text.toString().trim().toLongOrNull()
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_NEGATIVE, negative).apply()
     }
 
     /** Reads the steps box, keeps it within 1 to MAX_STEPS and remembers it for the loaded model. Main thread. */
@@ -201,6 +290,7 @@ class ImageActivity : ComponentActivity() {
             Toast.makeText(this, R.string.image_empty, Toast.LENGTH_SHORT).show()
             return
         }
+        readOptions()
         if (useGemini()) {
             generateWithGemini(text)
         } else {
@@ -268,15 +358,19 @@ class ImageActivity : ComponentActivity() {
     private fun makeOnPhone(text: String, note: String) {
         try {
             val usedSteps = steps
+            val usedSize = imageSize
             val usedThreads = loadedThreads
+            val usedSeed = seedValue ?: Random.nextLong(1L shl 31)
             val startedAt = SystemClock.elapsedRealtime()
-            val rgb = LocalImage.generate(text, "", SIZE, SIZE, usedSteps, preset.guidance, Random.nextLong(1L shl 31))
+            val rgb = LocalImage.generate(
+                text, negative, usedSize, usedSize, usedSteps, preset.guidance, sampler.code, usedSeed
+            )
             val seconds = (SystemClock.elapsedRealtime() - startedAt) / 1000.0
-            Log.i(TAG, "On-phone picture: $seconds s, $usedSteps steps, $usedThreads threads")
-            if (rgb == null || rgb.size != SIZE * SIZE * 3) {
+            Log.i(TAG, "On-phone picture: $seconds s, $usedSteps steps, $usedThreads threads, $usedSize px, seed $usedSeed, ${sampler.name}")
+            if (rgb == null || rgb.size != usedSize * usedSize * 3) {
                 show(getString(R.string.image_local_failed), "")
             } else {
-                val bitmap = rgbToBitmap(rgb, SIZE, SIZE)
+                val bitmap = rgbToBitmap(rgb, usedSize, usedSize)
                 val png = ByteArrayOutputStream().use { out ->
                     bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
                     out.toByteArray()
@@ -286,7 +380,7 @@ class ImageActivity : ComponentActivity() {
                 main.post {
                     preview.setImageBitmap(bitmap)
                     status.text = getString(R.string.image_saved, model)
-                    progress.text = (note + " " + getString(R.string.image_timing, seconds, usedSteps, usedThreads)).trim()
+                    progress.text = (note + " " + getString(R.string.image_timing, seconds, usedSteps, usedThreads, usedSize, usedSeed)).trim()
                 }
             }
         } catch (e: Exception) {
@@ -391,23 +485,41 @@ class ImageActivity : ComponentActivity() {
         private const val PREFS = "image"
         private const val KEY_MODEL_NAME = "model_name"
         private const val KEY_THREADS = "threads"
+        private const val KEY_NEGATIVE = "negative"
+        // The picture sizes offered (squares, in pixels). Bigger is slower.
+        private val SIZES = listOf(512, 768, 1024)
         // The Galaxy Z Fold8 (Snapdragon 8 Elite Gen 5) has 2 prime and 6 performance cores and no slow ones.
         private const val DEFAULT_THREADS = 6
         private const val MAX_THREADS = 8
         // The threads the loaded model was started with. It outlives the screen, as the model does. 0 if none.
         @Volatile private var loadedThreads = 0
-        // Pictures are made at this size.
-        private const val SIZE = 512
         // The most steps the steps box accepts.
         private const val MAX_STEPS = 50
     }
 }
 
-/** The settings a picture is made with, for the kind of model loaded. Order is the dropdown's order. */
-enum class ImagePreset(val labelRes: Int, val steps: Int, val guidance: Float) {
-    /** Stable Diffusion 1.5 and SDXL style models: slower, with guidance. */
-    SD(R.string.image_preset_sd, 20, 7.0f),
+/** The way the picture is built up step by step. [code] is the number the native code reads. */
+enum class Sampler(val labelRes: Int, val code: Int) {
+    EULER_A(R.string.image_sampler_euler_a, 0),
+    EULER(R.string.image_sampler_euler, 1),
+    LCM(R.string.image_sampler_lcm, 2),
+    DPMPP2M(R.string.image_sampler_dpmpp2m, 3),
+}
+
+/**
+ * The starting settings for the kind of model loaded: steps, guidance, picture size and sampler.
+ * Each can then be changed on the screen. Order is the dropdown's order; saved choices are stored by name.
+ */
+enum class ImagePreset(val labelRes: Int, val steps: Int, val guidance: Float, val size: Int, val sampler: Sampler) {
+    /** Stable Diffusion 1.5: slower, with guidance. */
+    SD(R.string.image_preset_sd, 20, 7.0f, 512, Sampler.EULER_A),
+
+    /** SDXL: made for 1024 px, so it looks better above 512 but takes longer. */
+    SDXL(R.string.image_preset_sdxl, 10, 5.0f, 768, Sampler.EULER_A),
+
+    /** SDXL models trained to work in a few steps (Lightning, Hyper-SD, DMD2). LCM sampler suits DMD2 and LCM models. */
+    SDXL_FAST(R.string.image_preset_sdxl_fast, 4, 1.0f, 768, Sampler.EULER),
 
     /** SDXS, a distilled model that makes a picture in one step with little or no guidance. */
-    SDXS(R.string.image_preset_sdxs, 1, 1.0f),
+    SDXS(R.string.image_preset_sdxs, 1, 1.0f, 512, Sampler.EULER_A),
 }
