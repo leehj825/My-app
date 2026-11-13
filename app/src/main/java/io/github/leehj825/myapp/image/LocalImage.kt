@@ -20,8 +20,17 @@ object LocalImage {
         false
     }
 
-    /** Loads a GGUF image model file, replacing any loaded one. Returns 0 on success. */
-    external fun load(modelPath: String, threads: Int): Int
+    /**
+     * Loads a GGUF image model file, replacing any loaded one. Returns 0 on success.
+     * [gpu] asks for the GPU; it has an effect only in a build with [hasVulkan].
+     */
+    external fun load(modelPath: String, threads: Int, gpu: Boolean): Int
+
+    /** True if this build of the library has the GPU (Vulkan) backend. */
+    external fun hasVulkan(): Boolean
+
+    /** The devices the library can use, one per line. For the log. */
+    external fun devices(): String
 
     /**
      * Makes one picture. Returns RGB pixels (width * height * 3 bytes, top row first), or null if no picture came back.

@@ -56,6 +56,38 @@ set(SD_BIN ${CMAKE_BINARY_DIR}/stable-diffusion-build)
 set(SD_PREFIX ${CMAKE_BINARY_DIR}/stable-diffusion-install)
 set(SD_LIBS ${SD_PREFIX}/lib)
 
+# Optional GPU support (Vulkan). Off in the normal build; the "Android Vulkan APK" workflow turns it on with
+# -PvulkanImage=true. It needs the Vulkan headers (fetched here, since the NDK may lack vulkan.hpp), the NDK's
+# shader compiler, and a compiler that runs on the build machine for the shader generator.
+option(MYAPP_SD_VULKAN "Build the image library with the Vulkan GPU backend" OFF)
+set(SD_EXTRA_ARGS "")
+set(SD_EXTRA_BYPRODUCTS "")
+if(MYAPP_SD_VULKAN)
+    FetchContent_Declare(vulkan_headers
+            GIT_REPOSITORY https://github.com/KhronosGroup/Vulkan-Headers
+            GIT_TAG v1.3.296
+            GIT_SHALLOW TRUE)
+    FetchContent_GetProperties(vulkan_headers)
+    if(NOT vulkan_headers_POPULATED)
+        FetchContent_Populate(vulkan_headers)
+    endif()
+    file(GLOB SD_GLSLC_CANDIDATES ${ANDROID_NDK}/shader-tools/*/glslc)
+    list(GET SD_GLSLC_CANDIDATES 0 SD_GLSLC)
+    find_program(SD_HOST_CC NAMES gcc cc clang)
+    find_program(SD_HOST_CXX NAMES g++ c++ clang++)
+    file(WRITE ${CMAKE_BINARY_DIR}/host-toolchain.cmake
+            "set(CMAKE_C_COMPILER ${SD_HOST_CC})\nset(CMAKE_CXX_COMPILER ${SD_HOST_CXX})\n")
+    set(SD_VULKAN_LIB ${CMAKE_SYSROOT}/usr/lib/aarch64-linux-android/${ANDROID_PLATFORM_LEVEL}/libvulkan.so)
+    message(STATUS "Vulkan image build: glslc=${SD_GLSLC} lib=${SD_VULKAN_LIB} headers=${vulkan_headers_SOURCE_DIR}")
+    set(SD_EXTRA_ARGS
+            -DSD_VULKAN=ON
+            -DVulkan_INCLUDE_DIR=${vulkan_headers_SOURCE_DIR}/include
+            -DVulkan_LIBRARY=${SD_VULKAN_LIB}
+            -DVulkan_GLSLC_EXECUTABLE=${SD_GLSLC}
+            -DGGML_VULKAN_SHADERS_GEN_TOOLCHAIN=${CMAKE_BINARY_DIR}/host-toolchain.cmake)
+    set(SD_EXTRA_BYPRODUCTS ${SD_LIBS}/libggml-vulkan.a)
+endif()
+
 ExternalProject_Add(stable_diffusion_ext
         GIT_REPOSITORY https://github.com/leejet/stable-diffusion.cpp
         GIT_TAG ${SD_TAG}
@@ -75,11 +107,13 @@ ExternalProject_Add(stable_diffusion_ext
             -DSD_BUILD_EXAMPLES=OFF
             -DSD_BUILD_SHARED_LIBS=OFF
             -DGGML_OPENMP=OFF
+            ${SD_EXTRA_ARGS}
         BUILD_BYPRODUCTS
             ${SD_LIBS}/libstable-diffusion.a
             ${SD_LIBS}/libggml.a
             ${SD_LIBS}/libggml-base.a
-            ${SD_LIBS}/libggml-cpu.a)
+            ${SD_LIBS}/libggml-cpu.a
+            ${SD_EXTRA_BYPRODUCTS})
 
 add_library(sd_stable_diffusion STATIC IMPORTED GLOBAL)
 set_target_properties(sd_stable_diffusion PROPERTIES IMPORTED_LOCATION ${SD_LIBS}/libstable-diffusion.a)
@@ -104,6 +138,15 @@ target_link_libraries(myapp_sd
         sd_ggml
         android
         log)
+
+if(MYAPP_SD_VULKAN)
+    add_library(sd_ggml_vulkan STATIC IMPORTED GLOBAL)
+    set_target_properties(sd_ggml_vulkan PROPERTIES IMPORTED_LOCATION ${SD_LIBS}/libggml-vulkan.a)
+    add_dependencies(sd_ggml_vulkan stable_diffusion_ext)
+    # The Vulkan backend goes before the ggml libraries it uses, so the linker keeps what it needs from them.
+    target_link_libraries(myapp_sd sd_ggml_vulkan ${SD_VULKAN_LIB} sd_ggml_cpu sd_ggml_base sd_ggml)
+    target_compile_definitions(myapp_sd PRIVATE MYAPP_SD_VULKAN=1)
+endif()
 
 # Each library keeps the copies of ggml inside it to itself, so the two copies never see each other's symbols.
 target_link_options(myapp_llm PRIVATE "-Wl,--exclude-libs,ALL")

@@ -162,7 +162,10 @@
     <string name="image_quota_fallback">Google\'s picture quota is used up, so this picture was made on the phone.</string>
     <string name="image_steps_hint">Steps (1 to 50): more steps take longer</string>
     <string name="image_threads_hint">CPU threads (1 to 8): changing it reloads the model</string>
-    <string name="image_timing">Made in %1$.1f s: %2$d steps, %3$d threads, %4$d px, seed %5$d</string>
+    <string name="image_timing">Made in %1$.1f s on the %6$s: %2$d steps, %3$d threads, %4$d px, seed %5$d</string>
+    <string name="image_backend_gpu">GPU</string>
+    <string name="image_backend_cpu">CPU</string>
+    <string name="image_gpu_label">Use the GPU (Vulkan). Changing it reloads the model.</string>
     <string name="image_negative_hint">Negative prompt: what to avoid, for example blurry, low quality</string>
     <string name="image_seed_hint">Seed (leave empty for a random one)</string>
     <string name="image_sampler_euler_a">Sampler: Euler a</string>

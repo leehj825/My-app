@@ -22,6 +22,12 @@ android {
             // The Galaxy Z Fold8 and other current phones are 64-bit ARM. Smaller build and APK.
             abiFilters 'arm64-v8a'
         }
+        externalNativeBuild {
+            cmake {
+                // gradle assembleDebug -PvulkanImage=true builds the image library with the GPU (Vulkan) backend.
+                arguments "-DMYAPP_SD_VULKAN=${project.hasProperty('vulkanImage') ? 'ON' : 'OFF'}"
+            }
+        }
     }
 
     externalNativeBuild {

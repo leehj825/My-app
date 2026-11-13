@@ -71,6 +71,13 @@
             android:inputType="number"
             android:visibility="gone" />
 
+        <CheckBox
+            android:id="@+id/image_gpu"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/image_gpu_label"
+            android:visibility="gone" />
+
         <EditText
             android:id="@+id/image_seed"
             android:layout_width="match_parent"

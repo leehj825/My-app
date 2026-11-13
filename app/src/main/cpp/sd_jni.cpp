@@ -23,24 +23,67 @@ static enum sample_method_t sampler_for(jint code) {
     }
 }
 
+// Creates the model. [backend] names the backend to use, or null for the library's default (the GPU when
+// there is one). Only the Vulkan build ever passes a name.
+static sd_ctx_t *create_context(const char *model_path, int threads, const char *backend) {
+    sd_ctx_params_t params;
+    sd_ctx_params_init(&params);
+    params.model_path = model_path;
+    params.n_threads = threads;
+    if (backend) params.backend = backend;
+    return new_sd_ctx(&params);
+}
+
 extern "C"
 JNIEXPORT jint JNICALL
-Java_io_github_leehj825_myapp_image_LocalImage_load(JNIEnv *env, jobject /*unused*/, jstring jmodel_path, jint threads) {
+Java_io_github_leehj825_myapp_image_LocalImage_load(
+        JNIEnv *env, jobject /*unused*/, jstring jmodel_path, jint threads, jboolean gpu) {
     if (g_sd) {
         free_sd_ctx(g_sd);
         g_sd = nullptr;
     }
     const char *model_path = env->GetStringUTFChars(jmodel_path, nullptr);
-    LOGi("Loading image model: %s", model_path);
+    LOGi("Loading image model: %s (gpu=%d)", model_path, int(gpu));
 
-    sd_ctx_params_t params;
-    sd_ctx_params_init(&params);
-    params.model_path = model_path;
-    params.n_threads = threads;
-    g_sd = new_sd_ctx(&params);
+#ifdef MYAPP_SD_VULKAN
+    // The default backend uses the GPU. "CPU" asks for the processor only. If that name is not accepted,
+    // the default is used rather than failing.
+    g_sd = create_context(model_path, threads, gpu ? nullptr : "CPU");
+    if (!g_sd && !gpu) {
+        LOGe("The CPU backend name was not accepted; loading with the default backend");
+        g_sd = create_context(model_path, threads, nullptr);
+    }
+#else
+    (void) gpu;
+    g_sd = create_context(model_path, threads, nullptr);
+#endif
 
     env->ReleaseStringUTFChars(jmodel_path, model_path);
     return g_sd ? 0 : 1;
+}
+
+extern "C"
+JNIEXPORT jboolean JNICALL
+Java_io_github_leehj825_myapp_image_LocalImage_hasVulkan(JNIEnv * /*unused*/, jobject /*unused*/) {
+#ifdef MYAPP_SD_VULKAN
+    return JNI_TRUE;
+#else
+    return JNI_FALSE;
+#endif
+}
+
+// The names of the devices the library can use, one per line, so the log shows whether the GPU is there.
+extern "C"
+JNIEXPORT jstring JNICALL
+Java_io_github_leehj825_myapp_image_LocalImage_devices(JNIEnv *env, jobject /*unused*/) {
+#ifdef MYAPP_SD_VULKAN
+    const size_t needed = sd_list_devices(nullptr, 0);
+    std::vector<char> buffer(needed + 1, 0);
+    sd_list_devices(buffer.data(), buffer.size());
+    return env->NewStringUTF(buffer.data());
+#else
+    return env->NewStringUTF("CPU");
+#endif
 }
 
 /**

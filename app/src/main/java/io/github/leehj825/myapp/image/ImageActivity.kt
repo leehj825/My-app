@@ -48,6 +48,7 @@ class ImageActivity : ComponentActivity() {
     private lateinit var threadsField: EditText
     private lateinit var negativeField: EditText
     private lateinit var seedField: EditText
+    private lateinit var gpuCheck: CheckBox
     private lateinit var sizeSpinner: Spinner
     private lateinit var samplerSpinner: Spinner
     private lateinit var generate: Button
@@ -64,6 +65,8 @@ class ImageActivity : ComponentActivity() {
     @Volatile private var steps = ImagePreset.SD.steps
     // How many CPU threads the model uses. It is set when the model is loaded, so changing it reloads the model.
     @Volatile private var threads = DEFAULT_THREADS
+    // Whether to use the GPU. Matters only in a build with the Vulkan backend; changing it reloads the model.
+    @Volatile private var useGpu = true
     // The picture size (a square, in pixels) and sampler for the loaded model.
     @Volatile private var imageSize = ImagePreset.SD.size
     @Volatile private var sampler = ImagePreset.SD.sampler
@@ -86,6 +89,7 @@ class ImageActivity : ComponentActivity() {
         threadsField = findViewById(R.id.image_threads)
         negativeField = findViewById(R.id.image_negative)
         seedField = findViewById(R.id.image_seed)
+        gpuCheck = findViewById(R.id.image_gpu)
         sizeSpinner = findViewById(R.id.image_size)
         samplerSpinner = findViewById(R.id.image_sampler)
         generate = findViewById(R.id.image_generate)
@@ -156,6 +160,8 @@ class ImageActivity : ComponentActivity() {
 
         threads = getSharedPreferences(PREFS, MODE_PRIVATE).getInt(KEY_THREADS, DEFAULT_THREADS)
         threadsField.setText(threads.toString())
+        useGpu = getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_GPU, true)
+        gpuCheck.isChecked = useGpu
 
         loadModel.setOnClickListener { pickModel.launch(arrayOf("*/*")) }
         generate.setOnClickListener { onGenerate() }
@@ -189,6 +195,12 @@ class ImageActivity : ComponentActivity() {
         threadsField.visibility = visibility
         negativeField.visibility = visibility
         seedField.visibility = visibility
+        // The GPU choice is offered only when this build of the library has the GPU backend.
+        gpuCheck.visibility = if (visibility == View.VISIBLE && LocalImage.libraryLoaded && LocalImage.hasVulkan()) {
+            View.VISIBLE
+        } else {
+            View.GONE
+        }
         sizeSpinner.visibility = visibility
         samplerSpinner.visibility = visibility
     }
@@ -246,8 +258,10 @@ class ImageActivity : ComponentActivity() {
         }
     }
 
-    /** Reads the negative prompt and seed boxes and remembers the negative prompt. Main thread. */
+    /** Reads the negative prompt, seed and GPU boxes and remembers them. Main thread. */
     private fun readOptions() {
+        useGpu = gpuCheck.isChecked
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(KEY_GPU, useGpu).apply()
         negative = negativeField.text.toString().trim()
         seedValue = seedField.text.toString().trim().toLongOrNull()
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_NEGATIVE, negative).apply()
@@ -269,9 +283,12 @@ class ImageActivity : ComponentActivity() {
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().putInt(KEY_THREADS, value).apply()
     }
 
-    /** Loads the model again if the threads box changed since it was loaded. Worker thread. True if it is ready. */
+    /** Whether the GPU is wanted and this build can use it. */
+    private fun wantGpu(): Boolean = useGpu && LocalImage.hasVulkan()
+
+    /** Loads the model again if the threads or GPU choice changed since it was loaded. Worker thread. True if ready. */
     private fun ensureThreads(): Boolean {
-        if (modelReady && loadedThreads != threads) {
+        if (modelReady && (loadedThreads != threads || (LocalImage.hasVulkan() && loadedGpuWanted != wantGpu()))) {
             LocalImage.unload()
             modelReady = false
             initModel(modelFile())
@@ -360,6 +377,7 @@ class ImageActivity : ComponentActivity() {
             val usedSteps = steps
             val usedSize = imageSize
             val usedThreads = loadedThreads
+            val usedGpu = loadedGpu
             val usedSeed = seedValue ?: Random.nextLong(1L shl 31)
             val startedAt = SystemClock.elapsedRealtime()
             val rgb = LocalImage.generate(
@@ -380,7 +398,10 @@ class ImageActivity : ComponentActivity() {
                 main.post {
                     preview.setImageBitmap(bitmap)
                     status.text = getString(R.string.image_saved, model)
-                    progress.text = (note + " " + getString(R.string.image_timing, seconds, usedSteps, usedThreads, usedSize, usedSeed)).trim()
+                    progress.text = (note + " " + getString(
+                        R.string.image_timing, seconds, usedSteps, usedThreads, usedSize, usedSeed,
+                        getString(if (usedGpu) R.string.image_backend_gpu else R.string.image_backend_cpu)
+                    )).trim()
                 }
             }
         } catch (e: Exception) {
@@ -433,10 +454,21 @@ class ImageActivity : ComponentActivity() {
     private fun initModel(file: File) {
         showStatus(R.string.image_loading)
         val startedAt = SystemClock.elapsedRealtime()
-        val ok = LocalImage.load(file.absolutePath, threads) == 0
-        Log.i(TAG, "Model load: ${SystemClock.elapsedRealtime() - startedAt} ms, $threads threads, ok=$ok")
+        val gpu = wantGpu()
+        var ok = LocalImage.load(file.absolutePath, threads, gpu) == 0
+        var gpuUsed = gpu && ok
+        if (!ok && gpu) {
+            // The GPU could not run this model: use the processor instead.
+            Log.w(TAG, "Loading on the GPU failed; trying the CPU")
+            ok = LocalImage.load(file.absolutePath, threads, false) == 0
+            gpuUsed = false
+        }
+        Log.i(TAG, "Model load: ${SystemClock.elapsedRealtime() - startedAt} ms, $threads threads, gpu=$gpuUsed, ok=$ok")
+        Log.i(TAG, "Devices:\n${LocalImage.devices()}")
         modelReady = ok
         loadedThreads = if (ok) threads else 0
+        loadedGpu = gpuUsed
+        loadedGpuWanted = gpu
         if (ok) {
             showSettings(modelName())
             showStatusText(getString(R.string.image_model_ready, modelName()))
@@ -486,6 +518,7 @@ class ImageActivity : ComponentActivity() {
         private const val KEY_MODEL_NAME = "model_name"
         private const val KEY_THREADS = "threads"
         private const val KEY_NEGATIVE = "negative"
+        private const val KEY_GPU = "gpu"
         // The picture sizes offered (squares, in pixels). Bigger is slower.
         private val SIZES = listOf(512, 768, 1024)
         // The Galaxy Z Fold8 (Snapdragon 8 Elite Gen 5) has 2 prime and 6 performance cores and no slow ones.
@@ -493,6 +526,10 @@ class ImageActivity : ComponentActivity() {
         private const val MAX_THREADS = 8
         // The threads the loaded model was started with. It outlives the screen, as the model does. 0 if none.
         @Volatile private var loadedThreads = 0
+        // Whether the loaded model runs on the GPU.
+        @Volatile private var loadedGpu = false
+        // What was asked for when it was loaded. It differs from [loadedGpu] when the GPU failed and the CPU was used.
+        @Volatile private var loadedGpuWanted = false
         // The most steps the steps box accepts.
         private const val MAX_STEPS = 50
     }

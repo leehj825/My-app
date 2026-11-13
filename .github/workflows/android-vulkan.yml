@@ -1,0 +1,40 @@
+name: Android Vulkan APK
+
+# Builds the debug APK with the image library's GPU (Vulkan) backend switched on. It is separate from the normal
+# build, so a problem with the GPU build never stops the normal APK. The APK is attached to the run.
+# Runs on pushes to the claude/ branches, and on demand.
+
+on:
+  push:
+    branches:
+      - 'claude/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+
+      - name: Build the debug APK with Vulkan
+        env:
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: gradle --no-daemon assembleDebug -PvulkanImage=true
+
+      - name: Upload the APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: my-app-vulkan-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
