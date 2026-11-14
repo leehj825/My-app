@@ -37,6 +37,20 @@
             android:layout_height="wrap_content"
             android:text="@string/image_load_model" />
 
+        <Button
+            android:id="@+id/image_remove_model"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/image_remove_model"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/image_load_upscaler"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/image_load_upscaler"
+            android:visibility="gone" />
+
         <Spinner
             android:id="@+id/image_preset"
             android:layout_width="match_parent"
@@ -91,6 +105,26 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/image_generate" />
+
+        <Button
+            android:id="@+id/image_cancel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/image_cancel"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/image_upscale"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/image_upscale"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/image_history"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/image_history" />
 
         <TextView
             android:id="@+id/image_progress"

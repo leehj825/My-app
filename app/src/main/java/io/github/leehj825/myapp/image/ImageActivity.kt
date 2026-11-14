@@ -1,6 +1,9 @@
 package io.github.leehj825.myapp.image
 
+import android.app.AlertDialog
+import android.content.ClipData
 import android.content.ContentValues
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -10,13 +13,14 @@ import android.os.Looper
 import android.os.SystemClock
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import android.text.format.Formatter
 import android.util.Log
 import android.view.View
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
-import android.widget.AdapterView
-import android.widget.ArrayAdapter
 import android.widget.ImageView
 import android.widget.Spinner
 import android.widget.TextView
@@ -25,6 +29,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import io.github.leehj825.myapp.R
 import io.github.leehj825.myapp.chat.GeminiClient
+import io.github.leehj825.myapp.notes.formatNoteTime
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.text.SimpleDateFormat
@@ -36,13 +41,17 @@ import kotlin.random.Random
 /**
  * Makes a picture from a description. Either on the phone, with a single-file GGUF image model you load
  * (Stable Diffusion style), or with Google's image model when "Use Gemini" is ticked.
- * The picture is shown and saved to Pictures/MyApp. With Gemini, the description is sent to Google.
+ * The picture is shown and saved to Pictures/MyApp, and listed in History with what it was made from.
+ * On the phone, progress is shown and a picture can be cancelled, and a loaded ESRGAN upscaler can make the last
+ * picture larger. With Gemini, the description is sent to Google.
  */
 class ImageActivity : ComponentActivity() {
 
     private lateinit var prompt: EditText
     private lateinit var geminiCheck: CheckBox
     private lateinit var loadModel: Button
+    private lateinit var removeModel: Button
+    private lateinit var loadUpscaler: Button
     private lateinit var presetSpinner: Spinner
     private lateinit var stepsField: EditText
     private lateinit var threadsField: EditText
@@ -52,6 +61,9 @@ class ImageActivity : ComponentActivity() {
     private lateinit var sizeSpinner: Spinner
     private lateinit var samplerSpinner: Spinner
     private lateinit var generate: Button
+    private lateinit var cancelButton: Button
+    private lateinit var upscaleButton: Button
+    private lateinit var historyButton: Button
     private lateinit var progress: TextView
     private lateinit var preview: ImageView
     private lateinit var status: TextView
@@ -74,8 +86,41 @@ class ImageActivity : ComponentActivity() {
     @Volatile private var negative = ""
     @Volatile private var seedValue: Long? = null
 
+    // True while a picture is being made or made larger. Model changes wait until it is over.
+    @Volatile private var busy = false
+    @Volatile private var cancelRequested = false
+    // True while the progress line is being updated from the model's progress.
+    @Volatile private var trackProgress = false
+    private var startedAt = 0L
+
+    // The last picture made on the phone, kept so the upscaler can make it larger.
+    @Volatile private var lastRgb: ByteArray? = null
+    @Volatile private var lastRgbSize = 0
+    @Volatile private var lastEntry: HistoryEntry? = null
+    @Volatile private var upscalerReady = false
+
+    /** Updates the progress line twice a second while a picture is being made on the phone. */
+    private val ticker = object : Runnable {
+        override fun run() {
+            if (!busy || !trackProgress) return
+            val seconds = ((SystemClock.elapsedRealtime() - startedAt) / 1000).toInt()
+            val step = LocalImage.progressStep()
+            val total = LocalImage.progressSteps()
+            progress.text = when {
+                cancelRequested -> getString(R.string.image_cancelling)
+                total > 0 && step > 0 -> getString(R.string.image_step_progress, step, total, seconds)
+                else -> getString(R.string.image_preparing, seconds)
+            }
+            main.postDelayed(this, 500)
+        }
+    }
+
     private val pickModel = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) loadFrom(uri)
+    }
+
+    private val pickUpscaler = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) loadUpscalerFrom(uri)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -84,6 +129,8 @@ class ImageActivity : ComponentActivity() {
         prompt = findViewById(R.id.image_prompt)
         geminiCheck = findViewById(R.id.image_gemini)
         loadModel = findViewById(R.id.image_load_model)
+        removeModel = findViewById(R.id.image_remove_model)
+        loadUpscaler = findViewById(R.id.image_load_upscaler)
         presetSpinner = findViewById(R.id.image_preset)
         stepsField = findViewById(R.id.image_steps)
         threadsField = findViewById(R.id.image_threads)
@@ -93,6 +140,9 @@ class ImageActivity : ComponentActivity() {
         sizeSpinner = findViewById(R.id.image_size)
         samplerSpinner = findViewById(R.id.image_sampler)
         generate = findViewById(R.id.image_generate)
+        cancelButton = findViewById(R.id.image_cancel)
+        upscaleButton = findViewById(R.id.image_upscale)
+        historyButton = findViewById(R.id.image_history)
         progress = findViewById(R.id.image_progress)
         preview = findViewById(R.id.image_preview)
         status = findViewById(R.id.image_status)
@@ -163,8 +213,17 @@ class ImageActivity : ComponentActivity() {
         useGpu = getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_GPU, true)
         gpuCheck.isChecked = useGpu
 
-        loadModel.setOnClickListener { pickModel.launch(arrayOf("*/*")) }
+        loadModel.setOnClickListener {
+            if (busy) toastBusy() else pickModel.launch(arrayOf("*/*"))
+        }
+        removeModel.setOnClickListener { confirmRemoveModel() }
+        loadUpscaler.setOnClickListener {
+            if (busy) toastBusy() else pickUpscaler.launch(arrayOf("*/*"))
+        }
         generate.setOnClickListener { onGenerate() }
+        cancelButton.setOnClickListener { onCancel() }
+        upscaleButton.setOnClickListener { onUpscale() }
+        historyButton.setOnClickListener { showHistory() }
 
         if (LocalImage.libraryLoaded) {
             worker.execute {
@@ -174,11 +233,12 @@ class ImageActivity : ComponentActivity() {
                     LocalImage.isLoaded() -> {
                         modelReady = true
                         showSettings(modelName())
-                        showStatusText(getString(R.string.image_model_ready, modelName()))
+                        showStatusText(getString(R.string.image_model_ready, modelName(), modelSizeText()))
                     }
                     file.exists() -> initModel(file)
                     else -> showStatus(R.string.image_model_none)
                 }
+                restoreUpscaler()
             }
         }
     }
@@ -190,6 +250,8 @@ class ImageActivity : ComponentActivity() {
     private fun updateModelControls() {
         val visibility = if (LocalImage.libraryLoaded && !useGemini()) View.VISIBLE else View.GONE
         loadModel.visibility = visibility
+        removeModel.visibility = visibility
+        loadUpscaler.visibility = visibility
         presetSpinner.visibility = visibility
         stepsField.visibility = visibility
         threadsField.visibility = visibility
@@ -203,6 +265,13 @@ class ImageActivity : ComponentActivity() {
         }
         sizeSpinner.visibility = visibility
         samplerSpinner.visibility = visibility
+        updateUpscaleButton()
+    }
+
+    /** The Upscale button shows when pictures are made on the phone, an upscaler is loaded and there is a picture. */
+    private fun updateUpscaleButton() {
+        val show = LocalImage.libraryLoaded && !useGemini() && upscalerReady && lastRgb != null
+        upscaleButton.visibility = if (show) View.VISIBLE else View.GONE
     }
 
     private fun presetKey(name: String): String = "preset:$name"
@@ -301,6 +370,12 @@ class ImageActivity : ComponentActivity() {
     private fun modelName(): String =
         getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_MODEL_NAME, null) ?: "model.gguf"
 
+    private fun modelSizeText(): String = Formatter.formatFileSize(this, modelFile().length())
+
+    private fun toastBusy() {
+        Toast.makeText(this, R.string.image_busy, Toast.LENGTH_SHORT).show()
+    }
+
     private fun onGenerate() {
         val text = prompt.text.toString().trim()
         if (text.isEmpty()) {
@@ -321,23 +396,68 @@ class ImageActivity : ComponentActivity() {
         }
     }
 
+    /** Stops the picture being made on the phone. */
+    private fun onCancel() {
+        if (!busy || cancelRequested) return
+        cancelRequested = true
+        progress.setText(R.string.image_cancelling)
+        LocalImage.cancel()
+    }
+
     private fun setBusy() {
+        busy = true
+        cancelRequested = false
         generate.isEnabled = false
+        upscaleButton.isEnabled = false
         progress.setText(R.string.image_working)
         status.text = ""
+    }
+
+    /** Ends the busy state after a picture, made or not. Any thread. */
+    private fun finishBusy() {
+        busy = false
+        trackProgress = false
+        main.post {
+            generate.isEnabled = true
+            upscaleButton.isEnabled = true
+            cancelButton.visibility = View.GONE
+            updateUpscaleButton()
+        }
+    }
+
+    /** Starts showing the model's progress, with a Cancel button. Any thread. */
+    private fun beginLocalTracking() {
+        cancelRequested = false
+        trackProgress = true
+        main.post {
+            startedAt = SystemClock.elapsedRealtime()
+            cancelButton.visibility = View.VISIBLE
+            main.removeCallbacks(ticker)
+            main.post(ticker)
+        }
     }
 
     private fun generateWithGemini(text: String) {
         setBusy()
         worker.execute {
+            val began = SystemClock.elapsedRealtime()
             try {
                 val result = GoogleImage.generate(text)
                 val bytes = result.bytes
                 if (bytes == null) {
                     show(getString(R.string.image_none), result.text)
                 } else {
-                    saveToPictures(bytes)
+                    val uri = saveToPictures(bytes)
                     val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    ImageHistory.add(
+                        this,
+                        HistoryEntry(
+                            uri = uri.toString(), time = System.currentTimeMillis(), kind = "gemini",
+                            prompt = text, negative = "", model = result.model, backend = "Google",
+                            steps = 0, size = bitmap?.width ?: 0, seed = 0L, sampler = "", guidance = 0f,
+                            seconds = (SystemClock.elapsedRealtime() - began) / 1000.0,
+                        )
+                    )
                     main.post {
                         preview.setImageBitmap(bitmap)
                         status.text = getString(R.string.image_saved, result.model)
@@ -355,7 +475,7 @@ class ImageActivity : ComponentActivity() {
                 Log.e(TAG, "Image failed", e)
                 show(getString(R.string.image_failed, e.message ?: e.javaClass.simpleName), "")
             } finally {
-                main.post { generate.isEnabled = true }
+                finishBusy()
             }
         }
     }
@@ -366,47 +486,129 @@ class ImageActivity : ComponentActivity() {
             try {
                 if (ensureThreads()) makeOnPhone(text, "") else show(getString(R.string.image_model_failed), "")
             } finally {
-                main.post { generate.isEnabled = true }
+                finishBusy()
             }
         }
     }
 
     /** Makes the picture with the loaded model. Runs on the worker thread. [note] is shown under the picture. */
     private fun makeOnPhone(text: String, note: String) {
+        beginLocalTracking()
         try {
             val usedSteps = steps
             val usedSize = imageSize
             val usedThreads = loadedThreads
             val usedGpu = loadedGpu
             val usedSeed = seedValue ?: Random.nextLong(1L shl 31)
-            val startedAt = SystemClock.elapsedRealtime()
+            val usedNegative = negative
+            val usedSampler = sampler
+            val usedGuidance = preset.guidance
+            val startedAtMs = SystemClock.elapsedRealtime()
             val rgb = LocalImage.generate(
-                text, negative, usedSize, usedSize, usedSteps, preset.guidance, sampler.code, usedSeed
+                text, usedNegative, usedSize, usedSize, usedSteps, usedGuidance, usedSampler.code, usedSeed
             )
-            val seconds = (SystemClock.elapsedRealtime() - startedAt) / 1000.0
-            Log.i(TAG, "On-phone picture: $seconds s, $usedSteps steps, $usedThreads threads, $usedSize px, seed $usedSeed, ${sampler.name}")
+            val seconds = (SystemClock.elapsedRealtime() - startedAtMs) / 1000.0
+            Log.i(TAG, "On-phone picture: $seconds s, $usedSteps steps, $usedThreads threads, $usedSize px, seed $usedSeed, ${usedSampler.name}")
             if (rgb == null || rgb.size != usedSize * usedSize * 3) {
-                show(getString(R.string.image_local_failed), "")
-            } else {
-                val bitmap = rgbToBitmap(rgb, usedSize, usedSize)
-                val png = ByteArrayOutputStream().use { out ->
-                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
-                    out.toByteArray()
+                if (cancelRequested) {
+                    show(getString(R.string.image_cancelled), "")
+                } else {
+                    val reason = LocalImage.lastError()
+                    Log.e(TAG, "No picture was made: $reason")
+                    show(
+                        if (reason.isBlank()) {
+                            getString(R.string.image_local_failed)
+                        } else {
+                            getString(R.string.image_local_failed_reason, reason)
+                        },
+                        ""
+                    )
                 }
-                saveToPictures(png)
-                val model = modelName()
-                main.post {
-                    preview.setImageBitmap(bitmap)
-                    status.text = getString(R.string.image_saved, model)
-                    progress.text = (note + " " + getString(
-                        R.string.image_timing, seconds, usedSteps, usedThreads, usedSize, usedSeed,
-                        getString(if (usedGpu) R.string.image_backend_gpu else R.string.image_backend_cpu)
-                    )).trim()
-                }
+                return
+            }
+            val bitmap = rgbToBitmap(rgb, usedSize, usedSize)
+            val uri = saveToPictures(toPng(bitmap))
+            val model = modelName()
+            val backend = getString(if (usedGpu) R.string.image_backend_gpu else R.string.image_backend_cpu)
+            val entry = HistoryEntry(
+                uri = uri.toString(), time = System.currentTimeMillis(), kind = "phone",
+                prompt = text, negative = usedNegative, model = model, backend = backend,
+                steps = usedSteps, size = usedSize, seed = usedSeed, sampler = usedSampler.name,
+                guidance = usedGuidance, seconds = seconds,
+            )
+            ImageHistory.add(this, entry)
+            lastRgb = rgb
+            lastRgbSize = usedSize
+            lastEntry = entry
+            main.post {
+                preview.setImageBitmap(bitmap)
+                status.text = getString(R.string.image_saved, model)
+                progress.text = (note + " " + getString(
+                    R.string.image_timing, seconds, usedSteps, usedThreads, usedSize, usedSeed, backend
+                )).trim()
+                updateUpscaleButton()
             }
         } catch (e: Exception) {
             Log.e(TAG, "On-phone image failed", e)
             show(getString(R.string.image_local_failed), "")
+        } finally {
+            trackProgress = false
+        }
+    }
+
+    /** Makes the last picture larger with the loaded upscaler. */
+    private fun onUpscale() {
+        if (busy) {
+            toastBusy()
+            return
+        }
+        val rgb = lastRgb ?: return
+        val size = lastRgbSize
+        val factor = getSharedPreferences(PREFS, MODE_PRIVATE).getInt(KEY_UPSCALER_SCALE, 0)
+        if (factor <= 0 || !upscalerReady) return
+        if (size * factor > MAX_UPSCALED_SIDE) {
+            Toast.makeText(this, R.string.image_upscale_too_large, Toast.LENGTH_LONG).show()
+            return
+        }
+        setBusy()
+        progress.setText(R.string.image_upscaling)
+        val source = lastEntry
+        worker.execute {
+            try {
+                val startedAtMs = SystemClock.elapsedRealtime()
+                val out = LocalImage.upscale(rgb, size, size, factor)
+                val seconds = (SystemClock.elapsedRealtime() - startedAtMs) / 1000.0
+                val side = size * factor
+                if (out == null || out.size != side * side * 3) {
+                    val reason = LocalImage.lastError()
+                    Log.e(TAG, "Upscale failed: $reason")
+                    show(getString(R.string.image_upscale_failed), reason)
+                } else {
+                    val bitmap = rgbToBitmap(out, side, side)
+                    val uri = saveToPictures(toPng(bitmap))
+                    ImageHistory.add(
+                        this,
+                        HistoryEntry(
+                            uri = uri.toString(), time = System.currentTimeMillis(), kind = "upscaled",
+                            prompt = source?.prompt.orEmpty(), negative = source?.negative.orEmpty(),
+                            model = source?.model.orEmpty(), backend = source?.backend.orEmpty(),
+                            steps = source?.steps ?: 0, size = side, seed = source?.seed ?: 0L,
+                            sampler = source?.sampler.orEmpty(), guidance = source?.guidance ?: 0f,
+                            seconds = seconds,
+                        )
+                    )
+                    main.post {
+                        preview.setImageBitmap(bitmap)
+                        status.text = getString(R.string.image_upscaled, factor, side, seconds)
+                        progress.text = ""
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Upscale failed", e)
+                show(getString(R.string.image_upscale_failed), "")
+            } finally {
+                finishBusy()
+            }
         }
     }
 
@@ -453,7 +655,7 @@ class ImageActivity : ComponentActivity() {
     /** Loads the model file. Runs on the worker thread. */
     private fun initModel(file: File) {
         showStatus(R.string.image_loading)
-        val startedAt = SystemClock.elapsedRealtime()
+        val startedAtMs = SystemClock.elapsedRealtime()
         val gpu = wantGpu()
         var ok = LocalImage.load(file.absolutePath, threads, gpu) == 0
         var gpuUsed = gpu && ok
@@ -463,7 +665,7 @@ class ImageActivity : ComponentActivity() {
             ok = LocalImage.load(file.absolutePath, threads, false) == 0
             gpuUsed = false
         }
-        Log.i(TAG, "Model load: ${SystemClock.elapsedRealtime() - startedAt} ms, $threads threads, gpu=$gpuUsed, ok=$ok")
+        Log.i(TAG, "Model load: ${SystemClock.elapsedRealtime() - startedAtMs} ms, $threads threads, gpu=$gpuUsed, ok=$ok")
         Log.i(TAG, "Devices:\n${LocalImage.devices()}")
         modelReady = ok
         loadedThreads = if (ok) threads else 0
@@ -471,17 +673,208 @@ class ImageActivity : ComponentActivity() {
         loadedGpuWanted = gpu
         if (ok) {
             showSettings(modelName())
-            showStatusText(getString(R.string.image_model_ready, modelName()))
+            showStatusText(getString(R.string.image_model_ready, modelName(), modelSizeText()))
         } else {
-            showStatus(R.string.image_model_failed)
+            // The library's own message, so the reason shows on screen and in the log.
+            val reason = LocalImage.lastError()
+            Log.e(TAG, "Model did not load: $reason")
+            showStatusText(
+                if (reason.isBlank()) {
+                    getString(R.string.image_model_failed)
+                } else {
+                    getString(R.string.image_model_failed_reason, reason)
+                }
+            )
         }
     }
 
-    private fun displayName(uri: Uri): String =
+    /** Asks before deleting the model file, which is several GB. */
+    private fun confirmRemoveModel() {
+        if (busy) {
+            toastBusy()
+            return
+        }
+        val file = modelFile()
+        if (!file.exists()) {
+            showStatus(R.string.image_model_none)
+            return
+        }
+        AlertDialog.Builder(this)
+            .setMessage(getString(R.string.image_remove_confirm, Formatter.formatFileSize(this, file.length())))
+            .setPositiveButton(R.string.image_remove_confirm_yes) { _, _ -> removeModelFile() }
+            .setNegativeButton(R.string.chat_key_cancel, null)
+            .show()
+    }
+
+    private fun removeModelFile() {
+        worker.execute {
+            if (LocalImage.isLoaded()) LocalImage.unload()
+            modelReady = false
+            loadedThreads = 0
+            modelFile().delete()
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit().remove(KEY_MODEL_NAME).apply()
+            showStatus(R.string.image_model_removed)
+        }
+    }
+
+    // ---- Upscaler ----
+
+    private fun upscalerFile(): File? =
+        getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_UPSCALER_FILE, null)?.let { File(filesDir, "image/$it") }
+
+    /** Makes the upscaler from an earlier visit ready again. Runs on the worker thread. */
+    private fun restoreUpscaler() {
+        val file = upscalerFile()
+        val scale = getSharedPreferences(PREFS, MODE_PRIVATE).getInt(KEY_UPSCALER_SCALE, 0)
+        if (LocalImage.upscalerLoaded()) {
+            upscalerReady = true
+        } else if (file != null && file.exists() && scale > 0) {
+            upscalerReady = LocalImage.upscalerLoad(file.absolutePath, threads) == 0
+        }
+        main.post { updateUpscaleButton() }
+    }
+
+    /** Copies the picked upscaler into the app's storage, checks it and loads it. Runs on the worker thread. */
+    private fun loadUpscalerFrom(uri: Uri) {
+        showStatus(R.string.image_copying)
+        val name = displayName(uri, "upscaler")
+        // The library recognizes the format from the file, but keeping the extension helps it.
+        val fileName = "upscaler." + name.substringAfterLast('.', "bin")
+        worker.execute {
+            try {
+                val target = File(filesDir, "image/$fileName")
+                target.parentFile?.mkdirs()
+                if (upscalerReady) {
+                    LocalImage.upscalerUnload()
+                    upscalerReady = false
+                }
+                val input = contentResolver.openInputStream(uri) ?: throw IllegalStateException("cannot open the file")
+                input.use { source -> target.outputStream().use { source.copyTo(it) } }
+                val scale = LocalImage.upscalerScale(target.absolutePath)
+                if (scale <= 0) {
+                    target.delete()
+                    showStatusText(getString(R.string.image_upscaler_failed, getString(R.string.image_upscaler_not_esrgan)))
+                    return@execute
+                }
+                if (LocalImage.upscalerLoad(target.absolutePath, threads) != 0) {
+                    val reason = LocalImage.lastError().ifBlank { "unknown" }
+                    showStatusText(getString(R.string.image_upscaler_failed, reason))
+                    return@execute
+                }
+                getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                    .putString(KEY_UPSCALER_FILE, fileName)
+                    .putInt(KEY_UPSCALER_SCALE, scale)
+                    .apply()
+                upscalerReady = true
+                showStatusText(getString(R.string.image_upscaler_ready, name, scale))
+                main.post { updateUpscaleButton() }
+            } catch (e: Exception) {
+                Log.e(TAG, "Could not load the upscaler", e)
+                showStatusText(getString(R.string.image_upscaler_failed, e.message ?: e.javaClass.simpleName))
+            }
+        }
+    }
+
+    // ---- History ----
+
+    private fun showHistory() {
+        val entries = ImageHistory.load(this)
+        if (entries.isEmpty()) {
+            Toast.makeText(this, R.string.image_history_empty, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val labels = entries.map { "${formatNoteTime(it.time)}  ${it.prompt.take(40)}" }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle(R.string.image_history)
+            .setItems(labels) { _, which -> showEntry(entries[which]) }
+            .setNegativeButton(R.string.note_close, null)
+            .show()
+    }
+
+    /** Shows the picture and what it was made from, with Share, Use settings and Remove. */
+    private fun showEntry(entry: HistoryEntry) {
+        showPicture(Uri.parse(entry.uri))
+        val details = getString(
+            R.string.image_history_details,
+            formatNoteTime(entry.time), entry.prompt, entry.negative.ifBlank { "-" },
+            entry.model, entry.backend, entry.steps, entry.size, entry.seed,
+            entry.sampler.ifBlank { "-" }, entry.seconds
+        )
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(entry.prompt.take(40))
+            .setMessage(details)
+            .setPositiveButton(R.string.image_history_share) { _, _ -> share(Uri.parse(entry.uri)) }
+            .setNegativeButton(R.string.image_history_remove) { _, _ ->
+                ImageHistory.remove(this, entry)
+                Toast.makeText(this, R.string.image_history_removed, Toast.LENGTH_LONG).show()
+            }
+        if (entry.kind != "gemini") {
+            dialog.setNeutralButton(R.string.image_history_use) { _, _ -> useSettings(entry) }
+        }
+        dialog.show()
+    }
+
+    /** Puts a saved picture in the preview. A big picture is shown at a smaller size. */
+    private fun showPicture(uri: Uri) {
+        worker.execute {
+            val bitmap = try {
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+                var sample = 1
+                while (bounds.outWidth / sample > MAX_PREVIEW_SIDE) sample *= 2
+                val options = BitmapFactory.Options().apply { inSampleSize = sample }
+                contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not open the picture", e)
+                null
+            }
+            main.post {
+                if (bitmap == null) {
+                    Toast.makeText(this, R.string.image_history_missing, Toast.LENGTH_LONG).show()
+                } else {
+                    preview.setImageBitmap(bitmap)
+                }
+            }
+        }
+    }
+
+    private fun share(uri: Uri) {
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "image/png"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            clipData = ClipData.newRawUri("", uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        startActivity(Intent.createChooser(send, getString(R.string.image_share_title)))
+    }
+
+    /** Puts a picture's prompt and settings back in the boxes, so it can be made again or changed. */
+    private fun useSettings(entry: HistoryEntry) {
+        prompt.setText(entry.prompt)
+        negativeField.setText(entry.negative)
+        if (entry.kind == "phone") seedField.setText(entry.seed.toString())
+        if (entry.steps > 0) {
+            steps = entry.steps.coerceIn(1, MAX_STEPS)
+            stepsField.setText(steps.toString())
+        }
+        val size = if (entry.kind == "upscaled") lastRgbSize.takeIf { it in SIZES } ?: imageSize else entry.size
+        if (size in SIZES) {
+            imageSize = size
+            sizeSpinner.setSelection(SIZES.indexOf(size))
+        }
+        Sampler.values().firstOrNull { it.name == entry.sampler }?.let {
+            sampler = it
+            samplerSpinner.setSelection(it.ordinal)
+        }
+        saveSettings()
+        Toast.makeText(this, R.string.image_history_restored, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun displayName(uri: Uri, fallback: String = "model.gguf"): String =
         contentResolver.query(uri, null, null, null, null)?.use { cursor ->
             val column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
             if (cursor.moveToFirst() && column >= 0) cursor.getString(column) else null
-        } ?: "model.gguf"
+        } ?: fallback
 
     /** Turns the model's RGB pixels (top row first) into a bitmap. */
     private fun rgbToBitmap(rgb: ByteArray, width: Int, height: Int): Bitmap {
@@ -495,9 +888,14 @@ class ImageActivity : ComponentActivity() {
         return Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888)
     }
 
+    private fun toPng(bitmap: Bitmap): ByteArray = ByteArrayOutputStream().use { out ->
+        bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+        out.toByteArray()
+    }
+
     /** Saves the picture to Pictures/MyApp, where it appears in the Gallery. */
     private fun saveToPictures(bytes: ByteArray): Uri {
-        val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        val stamp = SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.US).format(Date())
         val values = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, "Image_$stamp.png")
             put(MediaStore.Images.Media.MIME_TYPE, "image/png")
@@ -519,6 +917,8 @@ class ImageActivity : ComponentActivity() {
         private const val KEY_THREADS = "threads"
         private const val KEY_NEGATIVE = "negative"
         private const val KEY_GPU = "gpu"
+        private const val KEY_UPSCALER_FILE = "upscaler_file"
+        private const val KEY_UPSCALER_SCALE = "upscaler_scale"
         // The picture sizes offered (squares, in pixels). Bigger is slower.
         private val SIZES = listOf(512, 768, 1024)
         // The Galaxy Z Fold8 (Snapdragon 8 Elite Gen 5) has 2 prime and 6 performance cores and no slow ones.
@@ -532,6 +932,10 @@ class ImageActivity : ComponentActivity() {
         @Volatile private var loadedGpuWanted = false
         // The most steps the steps box accepts.
         private const val MAX_STEPS = 50
+        // The longest side of an upscaled picture. Bigger ones would not fit in the app's memory.
+        private const val MAX_UPSCALED_SIDE = 3072
+        // A saved picture is shown no wider than this, so a big one does not use too much memory.
+        private const val MAX_PREVIEW_SIDE = 2048
     }
 }
 
