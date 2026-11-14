@@ -154,6 +154,12 @@
     <string name="image_model_ready">Model loaded: %1$s (%2$s). Describe a picture.</string>
     <string name="image_model_failed_reason">The model could not be loaded: %1$s</string>
     <string name="image_remove_model">Remove model</string>
+    <string name="image_start_pick">Start from a picture</string>
+    <string name="image_start_last">Start from the last picture</string>
+    <string name="image_start_clear">Clear the start picture</string>
+    <string name="image_start_set">Start picture set. The next picture is made as a change of it.</string>
+    <string name="image_start_failed">That picture could not be opened.</string>
+    <string name="image_strength_hint">Strength 0.05 to 1: how much the start picture changes</string>
     <string name="image_improve">Improve the prompt (chat model)</string>
     <string name="image_improving">Improving the prompt… this loads the chat model first</string>
     <string name="image_improved">Prompt improved. Edit it if you like.</string>
@@ -192,6 +198,7 @@
     <string name="image_upscaler_failed">The upscaler could not be loaded: %1$s</string>
     <string name="image_upscaler_not_esrgan">it is not an ESRGAN upscaler model</string>
     <string name="image_upscaled">Upscaled %1$d times to %2$d px in %3$.1f s. Saved to Pictures/MyApp.</string>
+    <string name="image_upscale_none">Make a picture first.</string>
     <string name="image_upscale_failed">The picture could not be upscaled.</string>
     <string name="image_upscale_too_large">The upscaled picture would be too large for this phone. Make a smaller picture first.</string>
     <string name="image_model_failed">The model could not be loaded on this phone. It must be a GGUF image model.</string>

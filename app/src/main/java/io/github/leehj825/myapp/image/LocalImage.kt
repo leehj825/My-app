@@ -38,7 +38,8 @@ object LocalImage {
 
     /**
      * Makes one picture. Returns RGB pixels (width * height * 3 bytes, top row first), or null if no picture came
-     * back (it failed, or [cancel] was called).
+     * back (it failed, or [cancel] was called). With [init], RGB pixels of the same size, the new picture is made
+     * from that picture, changed by [strength] (0 to 1; 1 changes it completely).
      */
     external fun generate(
         prompt: String,
@@ -49,6 +50,8 @@ object LocalImage {
         cfg: Float,
         sampler: Int,
         seed: Long,
+        init: ByteArray?,
+        strength: Float,
     ): ByteArray?
 
     /** The step the picture being made has reached, 0 before the first step. */

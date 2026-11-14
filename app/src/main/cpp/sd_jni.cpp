@@ -200,7 +200,9 @@ Java_io_github_leehj825_myapp_image_LocalImage_generate(
         jint steps,
         jfloat cfg,
         jint sampler,
-        jlong seed
+        jlong seed,
+        jbyteArray jinit,
+        jfloat strength
 ) {
     if (!g_sd) {
         LOGe("generate: no model loaded");
@@ -227,9 +229,25 @@ Java_io_github_leehj825_myapp_image_LocalImage_generate(
     gen.sample_params.sample_steps = steps;
     gen.sample_params.guidance.txt_cfg = cfg;
 
+    // A start picture (RGB, the same size as the new picture) makes the new one a change of it, by [strength].
+    jbyte *init_data = nullptr;
+    if (jinit) {
+        if (env->GetArrayLength(jinit) == jsize(width) * height * 3) {
+            init_data = env->GetByteArrayElements(jinit, nullptr);
+            gen.init_image.width = uint32_t(width);
+            gen.init_image.height = uint32_t(height);
+            gen.init_image.channel = 3;
+            gen.init_image.data = reinterpret_cast<uint8_t *>(init_data);
+            gen.strength = strength;
+        } else {
+            LOGe("generate: the start picture has the wrong size; ignoring it");
+        }
+    }
+
     sd_image_generation_result_t *result = nullptr;
     const bool ok = generate_image(g_sd, &gen, &result);
 
+    if (init_data) env->ReleaseByteArrayElements(jinit, init_data, JNI_ABORT);
     env->ReleaseStringUTFChars(jprompt, prompt);
     env->ReleaseStringUTFChars(jnegative, negative);
 

@@ -31,6 +31,35 @@
             android:text="@string/image_improve"
             android:visibility="gone" />
 
+        <Button
+            android:id="@+id/image_start_pick"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/image_start_pick"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/image_start_last"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/image_start_last"
+            android:visibility="gone" />
+
+        <EditText
+            android:id="@+id/image_strength"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/image_strength_hint"
+            android:inputType="numberDecimal"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/image_start_clear"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/image_start_clear"
+            android:visibility="gone" />
+
         <CheckBox
             android:id="@+id/image_gemini"
             android:layout_width="wrap_content"

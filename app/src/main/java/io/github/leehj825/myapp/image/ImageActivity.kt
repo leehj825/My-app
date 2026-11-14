@@ -58,6 +58,10 @@ class ImageActivity : ComponentActivity() {
     private lateinit var removeModel: Button
     private lateinit var chooseModel: Button
     private lateinit var improveButton: Button
+    private lateinit var startPick: Button
+    private lateinit var startLast: Button
+    private lateinit var startClear: Button
+    private lateinit var strengthField: EditText
     private lateinit var allowAllFiles: Button
     private lateinit var loadUpscaler: Button
     private lateinit var presetSpinner: Spinner
@@ -93,6 +97,9 @@ class ImageActivity : ComponentActivity() {
     // From the negative prompt and seed boxes, read when Generate is tapped. No seed means a random one each time.
     @Volatile private var negative = ""
     @Volatile private var seedValue: Long? = null
+    // A start picture, if one is set: the next pictures are made as changes of it, by [strength].
+    @Volatile private var startBitmap: Bitmap? = null
+    @Volatile private var strength = DEFAULT_STRENGTH
 
     // True while a picture is being made or made larger. Model changes wait until it is over.
     @Volatile private var busy = false
@@ -127,6 +134,10 @@ class ImageActivity : ComponentActivity() {
         if (uri != null) loadFrom(uri)
     }
 
+    private val pickStart = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) loadStartPicture(uri)
+    }
+
     private val pickUpscaler = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) loadUpscalerFrom(uri)
     }
@@ -140,6 +151,10 @@ class ImageActivity : ComponentActivity() {
         removeModel = findViewById(R.id.image_remove_model)
         chooseModel = findViewById(R.id.image_choose_model)
         improveButton = findViewById(R.id.image_improve)
+        startPick = findViewById(R.id.image_start_pick)
+        startLast = findViewById(R.id.image_start_last)
+        startClear = findViewById(R.id.image_start_clear)
+        strengthField = findViewById(R.id.image_strength)
         allowAllFiles = findViewById(R.id.image_allow_all_files)
         loadUpscaler = findViewById(R.id.image_load_upscaler)
         presetSpinner = findViewById(R.id.image_preset)
@@ -230,6 +245,18 @@ class ImageActivity : ComponentActivity() {
         removeModel.setOnClickListener { confirmRemoveModel() }
         chooseModel.setOnClickListener { showModels() }
         improveButton.setOnClickListener { improvePrompt() }
+        startPick.setOnClickListener { pickStart.launch(arrayOf("image/*")) }
+        startLast.setOnClickListener {
+            val rgb = lastRgb
+            if (rgb == null) {
+                Toast.makeText(this, R.string.image_upscale_none, Toast.LENGTH_SHORT).show()
+            } else {
+                setStartPicture(rgbToBitmap(rgb, lastRgbSize, lastRgbSize))
+            }
+        }
+        startClear.setOnClickListener { setStartPicture(null) }
+        strength = getSharedPreferences(PREFS, MODE_PRIVATE).getFloat(KEY_STRENGTH, DEFAULT_STRENGTH)
+        strengthField.setText(strength.toString())
         allowAllFiles.setOnClickListener {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 startActivity(
@@ -280,6 +307,7 @@ class ImageActivity : ComponentActivity() {
         removeModel.visibility = visibility
         chooseModel.visibility = visibility
         improveButton.visibility = if (visibility == View.VISIBLE && LlmEngine.libraryLoaded) View.VISIBLE else View.GONE
+        startPick.visibility = visibility
         allowAllFiles.visibility =
             if (visibility == View.VISIBLE && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !hasAllFilesAccess()) {
                 View.VISIBLE
@@ -303,10 +331,61 @@ class ImageActivity : ComponentActivity() {
         updateUpscaleButton()
     }
 
+    /** Start picture controls: the strength box and Clear show once a start picture is set. */
+    private fun updateStartControls() {
+        val local = LocalImage.libraryLoaded && !useGemini()
+        val hasStart = startBitmap != null
+        startLast.visibility = if (local && lastRgb != null) View.VISIBLE else View.GONE
+        strengthField.visibility = if (local && hasStart) View.VISIBLE else View.GONE
+        startClear.visibility = if (local && hasStart) View.VISIBLE else View.GONE
+    }
+
+    /** Sets (or with null, clears) the start picture and shows it. Main thread. */
+    private fun setStartPicture(bitmap: Bitmap?) {
+        startBitmap = bitmap
+        if (bitmap != null) {
+            preview.setImageBitmap(bitmap)
+            status.setText(R.string.image_start_set)
+        }
+        updateStartControls()
+    }
+
+    /** Opens a picked picture to use as the start picture. */
+    private fun loadStartPicture(uri: Uri) {
+        worker.execute {
+            val bitmap = decodeScaled(uri)
+            main.post {
+                if (bitmap == null) {
+                    Toast.makeText(this, R.string.image_start_failed, Toast.LENGTH_LONG).show()
+                } else {
+                    setStartPicture(bitmap)
+                }
+            }
+        }
+    }
+
+    /** The picture in the middle of [source], cut square and scaled to [size] pixels, as RGB bytes. */
+    private fun bitmapToRgb(source: Bitmap, size: Int): ByteArray {
+        val side = minOf(source.width, source.height)
+        val square = Bitmap.createBitmap(source, (source.width - side) / 2, (source.height - side) / 2, side, side)
+        val scaled = Bitmap.createScaledBitmap(square, size, size, true)
+        val pixels = IntArray(size * size)
+        scaled.getPixels(pixels, 0, size, 0, 0, size, size)
+        val rgb = ByteArray(size * size * 3)
+        for (i in pixels.indices) {
+            val p = pixels[i]
+            rgb[3 * i] = (p shr 16).toByte()
+            rgb[3 * i + 1] = (p shr 8).toByte()
+            rgb[3 * i + 2] = p.toByte()
+        }
+        return rgb
+    }
+
     /** The Upscale button shows when pictures are made on the phone, an upscaler is loaded and there is a picture. */
     private fun updateUpscaleButton() {
         val show = LocalImage.libraryLoaded && !useGemini() && upscalerReady && lastRgb != null
         upscaleButton.visibility = if (show) View.VISIBLE else View.GONE
+        updateStartControls()
     }
 
     private fun presetKey(name: String): String = "preset:$name"
@@ -368,6 +447,8 @@ class ImageActivity : ComponentActivity() {
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(KEY_GPU, useGpu).apply()
         negative = negativeField.text.toString().trim()
         seedValue = seedField.text.toString().trim().toLongOrNull()
+        strength = strengthField.text.toString().toFloatOrNull()?.coerceIn(0.05f, 1.0f) ?: DEFAULT_STRENGTH
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putFloat(KEY_STRENGTH, strength).apply()
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_NEGATIVE, negative).apply()
     }
 
@@ -654,9 +735,12 @@ class ImageActivity : ComponentActivity() {
             val usedNegative = negative
             val usedSampler = sampler
             val usedGuidance = preset.guidance
+            // The start picture, cut square and scaled to the size of the new picture.
+            val startRgb = startBitmap?.let { bitmapToRgb(it, usedSize) }
             val startedAtMs = SystemClock.elapsedRealtime()
             val rgb = LocalImage.generate(
-                text, usedNegative, usedSize, usedSize, usedSteps, usedGuidance, usedSampler.code, usedSeed
+                text, usedNegative, usedSize, usedSize, usedSteps, usedGuidance, usedSampler.code, usedSeed,
+                startRgb, strength
             )
             val seconds = (SystemClock.elapsedRealtime() - startedAtMs) / 1000.0
             Log.i(TAG, "On-phone picture: $seconds s, $usedSteps steps, $usedThreads threads, $usedSize px, seed $usedSeed, ${usedSampler.name}")
@@ -983,20 +1067,23 @@ class ImageActivity : ComponentActivity() {
         dialog.show()
     }
 
-    /** Puts a saved picture in the preview. A big picture is shown at a smaller size. */
+    /** Opens a picture. A big one is opened at a smaller size, so it does not use too much memory. Null if it fails. */
+    private fun decodeScaled(uri: Uri): Bitmap? = try {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        var sample = 1
+        while (bounds.outWidth / sample > MAX_PREVIEW_SIDE) sample *= 2
+        val options = BitmapFactory.Options().apply { inSampleSize = sample }
+        contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
+    } catch (e: Exception) {
+        Log.w(TAG, "Could not open the picture", e)
+        null
+    }
+
+    /** Puts a saved picture in the preview. */
     private fun showPicture(uri: Uri) {
         worker.execute {
-            val bitmap = try {
-                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-                var sample = 1
-                while (bounds.outWidth / sample > MAX_PREVIEW_SIDE) sample *= 2
-                val options = BitmapFactory.Options().apply { inSampleSize = sample }
-                contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
-            } catch (e: Exception) {
-                Log.w(TAG, "Could not open the picture", e)
-                null
-            }
+            val bitmap = decodeScaled(uri)
             main.post {
                 if (bitmap == null) {
                     Toast.makeText(this, R.string.image_history_missing, Toast.LENGTH_LONG).show()
@@ -1088,6 +1175,9 @@ class ImageActivity : ComponentActivity() {
         private const val KEY_THREADS = "threads"
         private const val KEY_NEGATIVE = "negative"
         private const val KEY_GPU = "gpu"
+        private const val KEY_STRENGTH = "strength"
+        // How much a start picture changes, if the strength box is empty.
+        private const val DEFAULT_STRENGTH = 0.6f
         private const val KEY_UPSCALER_FILE = "upscaler_file"
         private const val KEY_UPSCALER_SCALE = "upscaler_scale"
         // The picture sizes offered (squares, in pixels). Bigger is slower.
@@ -1105,7 +1195,7 @@ class ImageActivity : ComponentActivity() {
         private const val MAX_STEPS = 50
         // The longest side of an upscaled picture. Bigger ones would not fit in the app's memory.
         private const val MAX_UPSCALED_SIDE = 3072
-        // A saved picture is shown no wider than this, so a big one does not use too much memory.
+        // A picture opened from storage is shown no wider than this, so a big one does not use too much memory.
         private const val MAX_PREVIEW_SIDE = 2048
     }
 }
