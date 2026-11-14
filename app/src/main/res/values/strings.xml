@@ -154,6 +154,12 @@
     <string name="image_model_ready">Model loaded: %1$s (%2$s). Describe a picture.</string>
     <string name="image_model_failed_reason">The model could not be loaded: %1$s</string>
     <string name="image_remove_model">Remove model</string>
+    <string name="image_choose_model">Choose model</string>
+    <string name="image_allow_all_files">Allow loading without copying (All files access)</string>
+    <string name="image_models_empty">No models yet. Tap Load model.</string>
+    <string name="image_model_in_app">copied into the app</string>
+    <string name="image_model_on_phone">read in place</string>
+    <string name="image_remove_confirm_listed">Remove %1$s from the list? The file on your phone is not deleted.</string>
     <string name="image_remove_confirm">Delete the model file (%1$s) from this phone? You can load it again later.</string>
     <string name="image_remove_confirm_yes">Delete</string>
     <string name="image_model_removed">Model removed.</string>

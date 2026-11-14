@@ -7,12 +7,16 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import android.provider.Settings
 import android.text.format.Formatter
 import android.util.Log
 import android.view.View
@@ -51,6 +55,8 @@ class ImageActivity : ComponentActivity() {
     private lateinit var geminiCheck: CheckBox
     private lateinit var loadModel: Button
     private lateinit var removeModel: Button
+    private lateinit var chooseModel: Button
+    private lateinit var allowAllFiles: Button
     private lateinit var loadUpscaler: Button
     private lateinit var presetSpinner: Spinner
     private lateinit var stepsField: EditText
@@ -130,6 +136,8 @@ class ImageActivity : ComponentActivity() {
         geminiCheck = findViewById(R.id.image_gemini)
         loadModel = findViewById(R.id.image_load_model)
         removeModel = findViewById(R.id.image_remove_model)
+        chooseModel = findViewById(R.id.image_choose_model)
+        allowAllFiles = findViewById(R.id.image_allow_all_files)
         loadUpscaler = findViewById(R.id.image_load_upscaler)
         presetSpinner = findViewById(R.id.image_preset)
         stepsField = findViewById(R.id.image_steps)
@@ -217,6 +225,14 @@ class ImageActivity : ComponentActivity() {
             if (busy) toastBusy() else pickModel.launch(arrayOf("*/*"))
         }
         removeModel.setOnClickListener { confirmRemoveModel() }
+        chooseModel.setOnClickListener { showModels() }
+        allowAllFiles.setOnClickListener {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                startActivity(
+                    Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName"))
+                )
+            }
+        }
         loadUpscaler.setOnClickListener {
             if (busy) toastBusy() else pickUpscaler.launch(arrayOf("*/*"))
         }
@@ -227,7 +243,8 @@ class ImageActivity : ComponentActivity() {
 
         if (LocalImage.libraryLoaded) {
             worker.execute {
-                val file = modelFile()
+                migrateOldModel()
+                val active = activeModel()
                 when {
                     // Still loaded from an earlier visit to this tool: no need to load it again.
                     LocalImage.isLoaded() -> {
@@ -235,12 +252,18 @@ class ImageActivity : ComponentActivity() {
                         showSettings(modelName())
                         showStatusText(getString(R.string.image_model_ready, modelName(), modelSizeText()))
                     }
-                    file.exists() -> initModel(file)
+                    active != null -> initModel(File(active.path))
                     else -> showStatus(R.string.image_model_none)
                 }
                 restoreUpscaler()
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Coming back from the All files access screen: show or hide its button.
+        updateModelControls()
     }
 
     /** True when pictures are made in the cloud. Otherwise they are made on the phone. */
@@ -251,6 +274,13 @@ class ImageActivity : ComponentActivity() {
         val visibility = if (LocalImage.libraryLoaded && !useGemini()) View.VISIBLE else View.GONE
         loadModel.visibility = visibility
         removeModel.visibility = visibility
+        chooseModel.visibility = visibility
+        allowAllFiles.visibility =
+            if (visibility == View.VISIBLE && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !hasAllFilesAccess()) {
+                View.VISIBLE
+            } else {
+                View.GONE
+            }
         loadUpscaler.visibility = visibility
         presetSpinner.visibility = visibility
         stepsField.visibility = visibility
@@ -365,10 +395,82 @@ class ImageActivity : ComponentActivity() {
         return modelReady
     }
 
-    private fun modelFile(): File = File(filesDir, "image/model.gguf")
+    // ---- Models ----
 
-    private fun modelName(): String =
-        getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_MODEL_NAME, null) ?: "model.gguf"
+    /** The model in use, if its file is still there. */
+    private fun activeModel(): ModelRef? {
+        val name = getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_ACTIVE_MODEL, null) ?: return null
+        return ModelStore.find(this, name)?.takeIf { File(it.path).exists() }
+    }
+
+    private fun modelFile(): File = File(activeModel()?.path ?: File(ModelStore.dir(this), "model.gguf").path)
+
+    /** The name of the model in use. The settings for each model are saved under it. */
+    private fun modelName(): String = activeModel()?.name ?: "model.gguf"
+
+    private fun safeFileName(name: String): String = name.replace(Regex("[^A-Za-z0-9._-]"), "_")
+
+    private fun hasAllFilesAccess(): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()
+
+    /** The real path of a file picked from the phone's own storage, if this app may read it there. Else null. */
+    private fun inPlacePath(uri: Uri): String? {
+        if (!hasAllFilesAccess()) return null
+        if (!DocumentsContract.isDocumentUri(this, uri) || uri.authority != "com.android.externalstorage.documents") {
+            return null
+        }
+        val parts = DocumentsContract.getDocumentId(uri).split(":", limit = 2)
+        if (parts.size != 2) return null
+        val root = if (parts[0] == "primary") "/storage/emulated/0" else "/storage/${parts[0]}"
+        return File(root, parts[1]).takeIf { it.canRead() }?.absolutePath
+    }
+
+    /** Moves the model copied by an earlier version of the app into the list of models. Worker thread. */
+    private fun migrateOldModel() {
+        val old = File(filesDir, "image/model.gguf")
+        if (!old.exists()) return
+        val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
+        val name = prefs.getString(KEY_MODEL_NAME, null) ?: "model.gguf"
+        val target = File(ModelStore.dir(this), safeFileName(name))
+        target.parentFile?.mkdirs()
+        if (old.renameTo(target)) {
+            ModelStore.add(this, ModelRef(name, target.absolutePath, true))
+            prefs.edit().putString(KEY_ACTIVE_MODEL, name).remove(KEY_MODEL_NAME).apply()
+        }
+    }
+
+    /** Lists the models, and loads the one that is picked. */
+    private fun showModels() {
+        if (busy) {
+            toastBusy()
+            return
+        }
+        val models = ModelStore.list(this).filter { File(it.path).exists() }
+        if (models.isEmpty()) {
+            Toast.makeText(this, R.string.image_models_empty, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val labels = models.map {
+            val size = Formatter.formatFileSize(this, File(it.path).length())
+            val where = getString(if (it.copied) R.string.image_model_in_app else R.string.image_model_on_phone)
+            "${it.name}  ($size, $where)"
+        }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle(R.string.image_choose_model)
+            .setItems(labels) { _, which -> switchTo(models[which]) }
+            .setNegativeButton(R.string.note_close, null)
+            .show()
+    }
+
+    private fun switchTo(ref: ModelRef) {
+        showStatus(R.string.image_loading)
+        worker.execute {
+            if (LocalImage.isLoaded()) LocalImage.unload()
+            modelReady = false
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_ACTIVE_MODEL, ref.name).apply()
+            initModel(File(ref.path))
+        }
+    }
 
     private fun modelSizeText(): String = Formatter.formatFileSize(this, modelFile().length())
 
@@ -629,22 +731,31 @@ class ImageActivity : ComponentActivity() {
         main.post { status.text = text }
     }
 
-    /** Copies the picked model into the app's storage, then loads it. Runs on the worker thread. */
+    /**
+     * Adds the picked model to the list and loads it. It is read where it is if the app may (All files access),
+     * otherwise copied into the app's storage first. Runs on the worker thread.
+     */
     private fun loadFrom(uri: Uri) {
-        showStatus(R.string.image_copying)
         val name = displayName(uri)
+        val inPlace = inPlacePath(uri)
+        showStatus(if (inPlace != null) R.string.image_loading else R.string.image_copying)
         worker.execute {
             try {
-                val target = modelFile()
-                target.parentFile?.mkdirs()
-                if (modelReady) {
-                    LocalImage.unload()
-                    modelReady = false
+                // Let go of the loaded model first: the file may be the one being replaced.
+                if (LocalImage.isLoaded()) LocalImage.unload()
+                modelReady = false
+                val ref = if (inPlace != null) {
+                    ModelRef(name, inPlace, false)
+                } else {
+                    val target = File(ModelStore.dir(this), safeFileName(name))
+                    target.parentFile?.mkdirs()
+                    val input = contentResolver.openInputStream(uri) ?: throw IllegalStateException("cannot open the file")
+                    input.use { source -> target.outputStream().use { source.copyTo(it) } }
+                    ModelRef(name, target.absolutePath, true)
                 }
-                val input = contentResolver.openInputStream(uri) ?: throw IllegalStateException("cannot open the file")
-                input.use { source -> target.outputStream().use { source.copyTo(it) } }
-                getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_MODEL_NAME, name).apply()
-                initModel(target)
+                ModelStore.add(this, ref)
+                getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_ACTIVE_MODEL, name).apply()
+                initModel(File(ref.path))
             } catch (e: Exception) {
                 Log.e(TAG, "Could not copy the image model", e)
                 showStatus(R.string.image_model_failed)
@@ -688,31 +799,40 @@ class ImageActivity : ComponentActivity() {
         }
     }
 
-    /** Asks before deleting the model file, which is several GB. */
+    /**
+     * Asks before removing the model in use. A model the app copied is deleted (it is several GB); a model read
+     * in place is only taken off the list, and the user's file is kept.
+     */
     private fun confirmRemoveModel() {
         if (busy) {
             toastBusy()
             return
         }
-        val file = modelFile()
-        if (!file.exists()) {
+        val ref = activeModel()
+        if (ref == null) {
             showStatus(R.string.image_model_none)
             return
         }
+        val message = if (ref.copied) {
+            getString(R.string.image_remove_confirm, Formatter.formatFileSize(this, File(ref.path).length()))
+        } else {
+            getString(R.string.image_remove_confirm_listed, ref.name)
+        }
         AlertDialog.Builder(this)
-            .setMessage(getString(R.string.image_remove_confirm, Formatter.formatFileSize(this, file.length())))
-            .setPositiveButton(R.string.image_remove_confirm_yes) { _, _ -> removeModelFile() }
+            .setMessage(message)
+            .setPositiveButton(R.string.image_remove_confirm_yes) { _, _ -> removeModelFile(ref) }
             .setNegativeButton(R.string.chat_key_cancel, null)
             .show()
     }
 
-    private fun removeModelFile() {
+    private fun removeModelFile(ref: ModelRef) {
         worker.execute {
             if (LocalImage.isLoaded()) LocalImage.unload()
             modelReady = false
             loadedThreads = 0
-            modelFile().delete()
-            getSharedPreferences(PREFS, MODE_PRIVATE).edit().remove(KEY_MODEL_NAME).apply()
+            if (ref.copied) File(ref.path).delete()
+            ModelStore.remove(this, ref.name)
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit().remove(KEY_ACTIVE_MODEL).apply()
             showStatus(R.string.image_model_removed)
         }
     }
@@ -913,6 +1033,8 @@ class ImageActivity : ComponentActivity() {
     companion object {
         private const val TAG = "ImageActivity"
         private const val PREFS = "image"
+        // The name of the model in use. KEY_MODEL_NAME is what earlier versions saved, moved on first start.
+        private const val KEY_ACTIVE_MODEL = "active_model"
         private const val KEY_MODEL_NAME = "model_name"
         private const val KEY_THREADS = "threads"
         private const val KEY_NEGATIVE = "negative"

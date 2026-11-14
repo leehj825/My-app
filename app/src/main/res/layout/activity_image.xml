@@ -38,6 +38,20 @@
             android:text="@string/image_load_model" />
 
         <Button
+            android:id="@+id/image_choose_model"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/image_choose_model"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/image_allow_all_files"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/image_allow_all_files"
+            android:visibility="gone" />
+
+        <Button
             android:id="@+id/image_remove_model"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
