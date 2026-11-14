@@ -410,15 +410,7 @@ class ImageActivity : ComponentActivity() {
     /** The settings remembered for this model. A new file starts on the type its name suggests. */
     private fun presetFor(name: String): ImagePreset {
         val saved = getSharedPreferences(PREFS, MODE_PRIVATE).getString(presetKey(name), null)
-        ImagePreset.values().firstOrNull { it.name == saved }?.let { return it }
-        val lower = name.lowercase(Locale.ROOT)
-        return when {
-            "sdxs" in lower -> ImagePreset.SDXS
-            "sdxl" in lower && listOf("lightning", "hyper", "dmd", "turbo", "lcm").any { it in lower } ->
-                ImagePreset.SDXL_FAST
-            "sdxl" in lower -> ImagePreset.SDXL
-            else -> ImagePreset.SD
-        }
+        return ImagePreset.values().firstOrNull { it.name == saved } ?: ImagePreset.guess(name)
     }
 
     /** Sets the settings for the loaded model and shows them. Any thread. */
@@ -1223,5 +1215,18 @@ enum class ImagePreset(val labelRes: Int, val steps: Int, val guidance: Float, v
     SDXL_FAST(R.string.image_preset_sdxl_fast, 4, 1.0f, 768, Sampler.EULER),
 
     /** SDXS, a distilled model that makes a picture in one step with little or no guidance. */
-    SDXS(R.string.image_preset_sdxs, 1, 1.0f, 512, Sampler.EULER_A),
+    SDXS(R.string.image_preset_sdxs, 1, 1.0f, 512, Sampler.EULER_A);
+
+    companion object {
+        /** The type a model file's name suggests. Names with "sdxs", "sdxl" or a fast-SDXL word are recognized. */
+        fun guess(name: String): ImagePreset {
+            val lower = name.lowercase(Locale.ROOT)
+            return when {
+                "sdxs" in lower -> SDXS
+                "sdxl" in lower && listOf("lightning", "hyper", "dmd", "turbo", "lcm").any { it in lower } -> SDXL_FAST
+                "sdxl" in lower -> SDXL
+                else -> SD
+            }
+        }
+    }
 }

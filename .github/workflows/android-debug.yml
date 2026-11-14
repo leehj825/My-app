@@ -32,6 +32,10 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: gradle --no-daemon assembleDebug
 
+      # The unit tests (settings guesses, saved lists, prompt tidying). The app is already built above.
+      - name: Run the unit tests
+        run: gradle --no-daemon testDebugUnitTest
+
       - name: Upload the APK
         uses: actions/upload-artifact@v4
         with:

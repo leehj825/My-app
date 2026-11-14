@@ -63,4 +63,8 @@ dependencies {
     implementation 'androidx.fragment:fragment:1.8.2'
     implementation 'androidx.biometric:biometric:1.1.0'
     implementation 'com.google.mlkit:genai-summarization:1.0.0-beta1'
+
+    // Unit tests run on the build machine (gradle testDebugUnitTest). org.json is real here, not Android's stub.
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20231013'
 }

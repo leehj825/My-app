@@ -65,7 +65,7 @@ object ImageHistory {
         file(context).writeText(array.toString())
     }
 
-    private fun toJson(e: HistoryEntry): JSONObject = JSONObject()
+    internal fun toJson(e: HistoryEntry): JSONObject = JSONObject()
         .put("uri", e.uri)
         .put("time", e.time)
         .put("kind", e.kind)
@@ -80,7 +80,7 @@ object ImageHistory {
         .put("guidance", e.guidance.toDouble())
         .put("seconds", e.seconds)
 
-    private fun fromJson(o: JSONObject): HistoryEntry = HistoryEntry(
+    internal fun fromJson(o: JSONObject): HistoryEntry = HistoryEntry(
         uri = o.getString("uri"),
         time = o.getLong("time"),
         kind = o.optString("kind", "phone"),
