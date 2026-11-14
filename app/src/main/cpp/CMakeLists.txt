@@ -71,6 +71,28 @@ if(MYAPP_SD_VULKAN)
     if(NOT vulkan_headers_POPULATED)
         FetchContent_Populate(vulkan_headers)
     endif()
+    # The Vulkan backend also needs the SPIRV-Headers package. It is headers only, so it is built and installed
+    # here with the build machine's compiler, and the library is told where its config file is.
+    FetchContent_Declare(spirv_headers
+            GIT_REPOSITORY https://github.com/KhronosGroup/SPIRV-Headers
+            GIT_TAG vulkan-sdk-1.3.296.0
+            GIT_SHALLOW TRUE)
+    FetchContent_GetProperties(spirv_headers)
+    if(NOT spirv_headers_POPULATED)
+        FetchContent_Populate(spirv_headers)
+    endif()
+    set(SPIRV_PREFIX ${CMAKE_BINARY_DIR}/spirv-headers-install)
+    execute_process(
+            COMMAND ${CMAKE_COMMAND} -S ${spirv_headers_SOURCE_DIR} -B ${CMAKE_BINARY_DIR}/spirv-headers-build
+                    -DCMAKE_INSTALL_PREFIX=${SPIRV_PREFIX} -DSPIRV_HEADERS_SKIP_EXAMPLES=ON
+            RESULT_VARIABLE SPIRV_CONFIGURE_RESULT)
+    execute_process(
+            COMMAND ${CMAKE_COMMAND} --install ${CMAKE_BINARY_DIR}/spirv-headers-build
+            RESULT_VARIABLE SPIRV_INSTALL_RESULT)
+    file(GLOB_RECURSE SPIRV_CONFIG_FILES ${SPIRV_PREFIX}/*SPIRV-HeadersConfig.cmake)
+    list(GET SPIRV_CONFIG_FILES 0 SPIRV_CONFIG_FILE)
+    get_filename_component(SPIRV_CONFIG_DIR ${SPIRV_CONFIG_FILE} DIRECTORY)
+    message(STATUS "SPIRV-Headers: configure=${SPIRV_CONFIGURE_RESULT} install=${SPIRV_INSTALL_RESULT} config=${SPIRV_CONFIG_DIR}")
     file(GLOB SD_GLSLC_CANDIDATES ${ANDROID_NDK}/shader-tools/*/glslc)
     list(GET SD_GLSLC_CANDIDATES 0 SD_GLSLC)
     find_program(SD_HOST_CC NAMES gcc cc clang)
@@ -84,6 +106,7 @@ if(MYAPP_SD_VULKAN)
             -DVulkan_INCLUDE_DIR=${vulkan_headers_SOURCE_DIR}/include
             -DVulkan_LIBRARY=${SD_VULKAN_LIB}
             -DVulkan_GLSLC_EXECUTABLE=${SD_GLSLC}
+            -DSPIRV-Headers_DIR=${SPIRV_CONFIG_DIR}
             -DGGML_VULKAN_SHADERS_GEN_TOOLCHAIN=${CMAKE_BINARY_DIR}/host-toolchain.cmake)
     set(SD_EXTRA_BYPRODUCTS ${SD_LIBS}/libggml-vulkan.a)
 endif()
