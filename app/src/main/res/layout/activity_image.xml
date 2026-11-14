@@ -24,6 +24,13 @@
             android:inputType="textMultiLine|textCapSentences"
             android:visibility="gone" />
 
+        <Button
+            android:id="@+id/image_improve"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/image_improve"
+            android:visibility="gone" />
+
         <CheckBox
             android:id="@+id/image_gemini"
             android:layout_width="wrap_content"

@@ -33,6 +33,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import io.github.leehj825.myapp.R
 import io.github.leehj825.myapp.chat.GeminiClient
+import io.github.leehj825.myapp.chat.LlmEngine
 import io.github.leehj825.myapp.notes.formatNoteTime
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -56,6 +57,7 @@ class ImageActivity : ComponentActivity() {
     private lateinit var loadModel: Button
     private lateinit var removeModel: Button
     private lateinit var chooseModel: Button
+    private lateinit var improveButton: Button
     private lateinit var allowAllFiles: Button
     private lateinit var loadUpscaler: Button
     private lateinit var presetSpinner: Spinner
@@ -137,6 +139,7 @@ class ImageActivity : ComponentActivity() {
         loadModel = findViewById(R.id.image_load_model)
         removeModel = findViewById(R.id.image_remove_model)
         chooseModel = findViewById(R.id.image_choose_model)
+        improveButton = findViewById(R.id.image_improve)
         allowAllFiles = findViewById(R.id.image_allow_all_files)
         loadUpscaler = findViewById(R.id.image_load_upscaler)
         presetSpinner = findViewById(R.id.image_preset)
@@ -226,6 +229,7 @@ class ImageActivity : ComponentActivity() {
         }
         removeModel.setOnClickListener { confirmRemoveModel() }
         chooseModel.setOnClickListener { showModels() }
+        improveButton.setOnClickListener { improvePrompt() }
         allowAllFiles.setOnClickListener {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 startActivity(
@@ -275,6 +279,7 @@ class ImageActivity : ComponentActivity() {
         loadModel.visibility = visibility
         removeModel.visibility = visibility
         chooseModel.visibility = visibility
+        improveButton.visibility = if (visibility == View.VISIBLE && LlmEngine.libraryLoaded) View.VISIBLE else View.GONE
         allowAllFiles.visibility =
             if (visibility == View.VISIBLE && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !hasAllFilesAccess()) {
                 View.VISIBLE
@@ -495,6 +500,50 @@ class ImageActivity : ComponentActivity() {
             readSteps()
             readThreads()
             generateOnPhone(text)
+        }
+    }
+
+    /** Rewrites the prompt as a detailed description with the chat's on-phone model. */
+    private fun improvePrompt() {
+        if (busy) {
+            toastBusy()
+            return
+        }
+        val text = prompt.text.toString().trim()
+        if (text.isEmpty()) {
+            Toast.makeText(this, R.string.image_empty, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val chatModel = File(filesDir, "llm/model.gguf")
+        if (!LlmEngine.libraryLoaded || !chatModel.exists()) {
+            Toast.makeText(this, R.string.image_improve_no_model, Toast.LENGTH_LONG).show()
+            return
+        }
+        busy = true
+        generate.isEnabled = false
+        improveButton.isEnabled = false
+        progress.setText(R.string.image_improving)
+        status.text = ""
+        worker.execute {
+            var improved = ""
+            try {
+                improved = PromptWriter.improve(chatModel.absolutePath, text)
+            } catch (e: Exception) {
+                Log.e(TAG, "Improving the prompt failed", e)
+            } finally {
+                finishBusy()
+            }
+            main.post {
+                improveButton.isEnabled = true
+                if (improved.isBlank()) {
+                    progress.text = ""
+                    status.setText(R.string.image_improve_failed)
+                } else {
+                    prompt.setText(improved)
+                    progress.text = ""
+                    status.setText(R.string.image_improved)
+                }
+            }
         }
     }
 

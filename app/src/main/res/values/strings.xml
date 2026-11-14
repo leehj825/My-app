@@ -154,6 +154,11 @@
     <string name="image_model_ready">Model loaded: %1$s (%2$s). Describe a picture.</string>
     <string name="image_model_failed_reason">The model could not be loaded: %1$s</string>
     <string name="image_remove_model">Remove model</string>
+    <string name="image_improve">Improve the prompt (chat model)</string>
+    <string name="image_improving">Improving the prompt… this loads the chat model first</string>
+    <string name="image_improved">Prompt improved. Edit it if you like.</string>
+    <string name="image_improve_failed">The chat model could not improve the prompt.</string>
+    <string name="image_improve_no_model">Load a chat model in the Chat tool first.</string>
     <string name="image_choose_model">Choose model</string>
     <string name="image_allow_all_files">Allow loading without copying (All files access)</string>
     <string name="image_models_empty">No models yet. Tap Load model.</string>
