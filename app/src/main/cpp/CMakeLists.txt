@@ -107,6 +107,9 @@ if(MYAPP_SD_VULKAN)
             -DVulkan_LIBRARY=${SD_VULKAN_LIB}
             -DVulkan_GLSLC_EXECUTABLE=${SD_GLSLC}
             -DSPIRV-Headers_DIR=${SPIRV_CONFIG_DIR}
+            # The Vulkan backend includes <spirv/unified1/spirv.hpp>, so every compile gets this folder.
+            -DCMAKE_CXX_STANDARD_INCLUDE_DIRECTORIES=${spirv_headers_SOURCE_DIR}/include
+            -DCMAKE_C_STANDARD_INCLUDE_DIRECTORIES=${spirv_headers_SOURCE_DIR}/include
             -DGGML_VULKAN_SHADERS_GEN_TOOLCHAIN=${CMAKE_BINARY_DIR}/host-toolchain.cmake)
     set(SD_EXTRA_BYPRODUCTS ${SD_LIBS}/libggml-vulkan.a)
 endif()
